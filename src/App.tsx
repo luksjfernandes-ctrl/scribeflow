@@ -71,7 +71,7 @@ export default function App() {
   // State
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
-  const [project, setProject] = useState<Project | null>(null); // Kept for backward compatibility with components
+  const project = useMemo(() => projects.find(p => p.id === activeProjectId) || projects[0] || null, [projects, activeProjectId]);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(INITIAL_DOCS[0].id);
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
@@ -180,23 +180,13 @@ export default function App() {
 
   const menus = [
     {
-      label: 'Projeto',
-      items: [
-        { label: 'Meus Projetos...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
-        { label: 'Novo Projeto', shortcut: '⌘N', onClick: () => handleCreateProject('Novo Projeto') },
-        { divider: true },
-        { label: 'Configurações do Projeto', shortcut: '⌘,', onClick: () => setIsSettingsOpen(true) },
-        { label: 'Exportar Manuscrito...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
-      ]
-    },
-    {
-      label: 'Arquivo',
+      label: 'File',
       items: [
         { label: 'New Text', shortcut: '⌘N', onClick: () => handleAddDoc(null, 'text') },
         { label: 'New Folder', shortcut: '⇧⌘N', onClick: () => handleAddDoc(null, 'folder') },
         { divider: true },
         { label: 'Save', shortcut: '⌘S', onClick: handleSave },
-        { label: 'Compile...', shortcut: '⌥⌘E', onClick: () => setIsExportOpen(true) },
+        { label: 'Export Draft...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
         { divider: true },
         { label: 'Page Setup...', onClick: () => console.log('Page Setup') },
         { label: 'Print...', shortcut: '⌘P', onClick: () => window.print() },
@@ -232,6 +222,9 @@ export default function App() {
     {
       label: 'Project',
       items: [
+        { label: 'My Projects...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
+        { label: 'New Project...', shortcut: '⇧⌘P', onClick: () => handleCreateProject('New Project') },
+        { divider: true },
         { label: 'Project Settings...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
         { label: 'Project Statistics', shortcut: '⌥⌘S', onClick: () => console.log('Stats') },
         { divider: true },
@@ -375,7 +368,6 @@ export default function App() {
           // Default to the most recently updated project if none selected
           if (!activeProjectId) {
             setActiveProjectId(data[0].id);
-            setProject(data[0] as Project);
           }
         } else if (!error) {
           // Initialize first project if none exist
@@ -388,7 +380,6 @@ export default function App() {
           } else {
             setProjects([initialProject]);
             setActiveProjectId(userProjectId);
-            setProject(initialProject);
           }
         }
       };
@@ -418,7 +409,6 @@ export default function App() {
             ...p, 
             settings: { ...INITIAL_PROJECT.settings, ...(p.settings || {}) } 
           };
-          setProject(validatedProject);
           setProjects([validatedProject]);
           setActiveProjectId(validatedProject.id);
         } catch (e) {
@@ -489,10 +479,6 @@ export default function App() {
         () => fetchDocs())
       .subscribe();
 
-    // Find the current active project object
-    const currentProj = projects.find(p => p.id === activeProjectId);
-    if (currentProj) setProject(currentProj);
-
     return () => {
       docsChannel.unsubscribe();
     };
@@ -538,7 +524,8 @@ export default function App() {
     try {
       await supabase.auth.signOut();
       // Clear local state on logout
-      setProject(INITIAL_PROJECT);
+      setProjects([]);
+      setActiveProjectId(null);
       setDocs(INITIAL_DOCS);
       setSelectedDocId(INITIAL_DOCS[0].id);
     } catch (e) {
@@ -635,6 +622,9 @@ export default function App() {
     if (!error) {
       setProjects([newProject, ...projects]);
       setActiveProjectId(newProjectId);
+    } else {
+      console.error('[Supabase] Error creating project:', error);
+      alert('Failed to create project: ' + error.message);
     }
   };
 
@@ -652,12 +642,8 @@ export default function App() {
   };
 
   const handleSwitchProject = (id: string) => {
-    const selected = projects.find(p => p.id === id);
-    if (selected) {
-      setActiveProjectId(id);
-      setProject(selected);
-      setSelectedDocId(null); // Reset selection
-    }
+    setActiveProjectId(id);
+    setSelectedDocId(null); // Reset selection
   };
 
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
@@ -1048,6 +1034,7 @@ export default function App() {
       <AnimatePresence>
         {isCompositionMode && selectedDoc && selectedDoc.type === 'text' && (
           <CompositionMode 
+            key="compose-mode"
             content={selectedDoc.content}
             title={selectedDoc.title}
             onChange={(content) => handleUpdateDoc(selectedDoc.id, { content })}
@@ -1061,7 +1048,14 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={project?.settings || INITIAL_PROJECT.settings}
-        onUpdateSettings={(settings) => project && setProject({ ...project, settings: { ...project.settings, ...settings } })}
+        onUpdateSettings={async (settings) => {
+          if (!project) return;
+          const updatedSettings = { ...project.settings, ...settings };
+          setProjects(prev => prev.map(p => p.id === project.id ? { ...p, settings: updatedSettings } : p));
+          if (user) {
+            await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
+          }
+        }}
       />
       <ExportModal 
         isOpen={isExportOpen}

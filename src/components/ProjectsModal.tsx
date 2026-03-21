@@ -31,6 +31,8 @@ const ProjectsModal: React.FC<ProjectsModalProps> = ({
     if (newProjectName.trim()) {
       onCreate(newProjectName.trim());
       setNewProjectName('');
+    } else {
+      alert('Digite o nome do projeto primeiro!');
     }
   };
 
@@ -139,8 +141,8 @@ const ProjectsModal: React.FC<ProjectsModalProps> = ({
                 />
                 <button
                   type="submit"
-                  disabled={!newProjectName.trim()}
-                  className="p-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:bg-gray-600 text-white rounded-md transition-all flex items-center justify-center min-w-[40px]"
+                  title="Criar novo projeto"
+                  className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-all flex items-center justify-center min-w-[40px] shadow-sm cursor-pointer"
                 >
                   <Plus className="w-5 h-5" />
                 </button>

@@ -41,11 +41,6 @@
     background-color: var(--bg-app);
     color: var(--text-primary);
   }
-  
-  * {
-    transition-property: background-color, color, border-color, box-shadow, opacity, transform;
-    @apply transition-all duration-150 ease-in-out;
-  }
 }
 
 /* 1. TOOLBAR — macOS Native */
