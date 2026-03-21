@@ -3,16 +3,18 @@ import { Doc } from '../types';
 import { cn } from '../lib/utils';
 import { ICONS, FOLDER_COLORS } from '../constants';
 
-const getDocIcon = (type: string, id: string) => {
-  const color = FOLDER_COLORS[id as keyof typeof FOLDER_COLORS] || FOLDER_COLORS.manuscript;
-  switch (type) {
-    case 'folder': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.folder(color) }} />;
-    case 'research': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.research }} />;
-    case 'characters': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.characters }} />;
-    case 'places': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.places }} />;
-    case 'trash': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.trash }} />;
-    default: return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.textDoc(true) }} />;
-  }
+const getDocIcon = (doc: Doc) => {
+  const role = doc.folder_role as keyof typeof FOLDER_COLORS;
+  const color = FOLDER_COLORS[role] || FOLDER_COLORS.manuscript;
+  
+  if (role === 'trash') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.trash }} />;
+  if (role === 'research') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.research }} />;
+  if (role === 'characters') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.characters }} />;
+  if (role === 'places') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.places }} />;
+  
+  if (doc.type === 'folder') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.folder(role === 'manuscript' ? color : undefined) }} />;
+  
+  return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.textDoc(true) }} />;
 };
 
 interface CorkboardProps {
@@ -34,7 +36,7 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
             {/* Index Card Header */}
             <div className="p-4 flex items-center justify-between border-b border-[#B5B2AA]/20">
               <div className="flex items-center gap-2">
-                {getDocIcon(doc.type, doc.id)}
+                {getDocIcon(doc)}
                 <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A5A5A] truncate max-w-[140px]">
                   {doc.title}
                 </span>

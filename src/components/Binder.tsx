@@ -41,16 +41,18 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-const getDocIcon = (type: DocumentType, id: string) => {
-  const color = FOLDER_COLORS[id as keyof typeof FOLDER_COLORS] || FOLDER_COLORS.manuscript;
-  switch (type) {
-    case 'folder': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.folder(color) }} />;
-    case 'research': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.research }} />;
-    case 'characters': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.characters }} />;
-    case 'places': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.places }} />;
-    case 'trash': return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.trash }} />;
-    default: return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.textDoc(true) }} />;
-  }
+const getDocIcon = (doc: Doc) => {
+  const role = doc.folder_role as keyof typeof FOLDER_COLORS;
+  const color = FOLDER_COLORS[role] || FOLDER_COLORS.manuscript;
+  
+  if (role === 'trash') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.trash }} />;
+  if (role === 'research') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.research }} />;
+  if (role === 'characters') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.characters }} />;
+  if (role === 'places') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.places }} />;
+  
+  if (doc.type === 'folder') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.folder(role === 'manuscript' ? color : undefined) }} />;
+  
+  return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.textDoc(true) }} />;
 };
 
 interface SortableBinderItemProps {
@@ -175,7 +177,7 @@ function SortableBinderItem({
         </div>
 
         <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">
-          {getDocIcon(doc.type, doc.id)}
+          {getDocIcon(doc)}
         </div>
 
         {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
@@ -389,14 +391,6 @@ export const Binder: React.FC<BinderProps> = ({
           </button>
           <button onClick={() => onAddDoc(null, 'folder')} className="macos-btn w-6 h-6" title="Add Folder">
             <FolderPlus size={14} />
-          </button>
-        </div>
-        <div className="flex gap-0.5">
-          <button className="macos-btn w-6 h-6" title="Options">
-            <Settings size={14} />
-          </button>
-          <button className="macos-btn w-6 h-6 text-red-700/70" title="Trash">
-            <Trash2 size={14} />
           </button>
         </div>
       </div>

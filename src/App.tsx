@@ -32,7 +32,7 @@ import {
   File
 } from 'lucide-react';
 import { Doc, Project, ViewMode, DocumentType, DocumentMetadata } from './types';
-import { INITIAL_PROJECT, INITIAL_DOCS } from './constants';
+import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
 import { arrayMove } from '@dnd-kit/sortable';
@@ -49,6 +49,7 @@ import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
 
 export default function App() {
   // Auth State
@@ -75,7 +76,7 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const project = useMemo(() => projects.find(p => p.id === activeProjectId) || projects[0] || null, [projects, activeProjectId]);
   const [docs, setDocs] = useState<Doc[]>([]);
-  const [selectedDocId, setSelectedDocId] = useState<string | null>(INITIAL_DOCS[0].id);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
@@ -84,7 +85,7 @@ export default function App() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['manuscript', 'part1', 'characters', 'places', 'research', 'front-matter']));
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
   
   // Panel Widths
   const [binderWidth, setBinderWidth] = useState(240);
@@ -235,16 +236,12 @@ export default function App() {
         { label: 'Save', shortcut: '⌘S', onClick: handleSave },
         { label: 'Export Draft...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
         { divider: true },
-        { label: 'Page Setup...', onClick: () => console.log('Page Setup') },
         { label: 'Print...', shortcut: '⌘P', onClick: () => window.print() },
       ]
     },
     {
       label: 'Edit',
       items: [
-        { label: 'Undo', shortcut: '⌘Z', onClick: () => console.log('Undo') },
-        { label: 'Redo', shortcut: '⇧⌘Z', onClick: () => console.log('Redo') },
-        { divider: true },
         { label: 'Cut', shortcut: '⌘X', onClick: () => document.execCommand('cut') },
         { label: 'Copy', shortcut: '⌘C', onClick: () => document.execCommand('copy') },
         { label: 'Paste', shortcut: '⌘V', onClick: () => document.execCommand('paste') },
@@ -273,40 +270,9 @@ export default function App() {
         { label: 'New Project...', shortcut: '⇧⌘P', onClick: () => handleCreateProject('New Project') },
         { divider: true },
         { label: 'Project Settings...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
-        { label: 'Project Statistics', shortcut: '⌥⌘S', onClick: () => console.log('Stats') },
         { divider: true },
         { label: 'New Character Sketch', onClick: () => handleAddDoc(null, 'characters') },
         { label: 'New Setting Sketch', onClick: () => handleAddDoc(null, 'places') },
-      ]
-    },
-    {
-      label: 'Format',
-      items: [
-        { label: 'Font...', shortcut: '⌘T', onClick: () => console.log('Font') },
-        { label: 'Bold', shortcut: '⌘B', onClick: () => console.log('Bold') },
-        { label: 'Italic', shortcut: '⌘I', onClick: () => console.log('Italic') },
-        { label: 'Underline', shortcut: '⌘U', onClick: () => console.log('Underline') },
-        { divider: true },
-        { label: 'Alignment', onClick: () => console.log('Align') },
-        { label: 'Line Spacing', onClick: () => console.log('Spacing') },
-      ]
-    },
-    {
-      label: 'Window',
-      items: [
-        { label: 'Minimize', shortcut: '⌘M', onClick: () => console.log('Minimize') },
-        { label: 'Zoom', onClick: () => console.log('Zoom') },
-        { divider: true },
-        { label: 'Bring All to Front', onClick: () => console.log('Front') },
-      ]
-    },
-    {
-      label: 'Help',
-      items: [
-        { label: 'Search', shortcut: '⇧⌘/', onClick: () => console.log('Help Search') },
-        { divider: true },
-        { label: 'ScribeFlow Help', onClick: () => console.log('Help') },
-        { label: 'Tutorial', onClick: () => console.log('Tutorial') },
       ]
     }
   ];
@@ -398,7 +364,6 @@ export default function App() {
     if (!isAuthReady) return;
 
     if (user) {
-      // Fetch all user projects
       const fetchProjects = async () => {
         const { data, error } = await supabase
           .from('projects')
@@ -412,28 +377,37 @@ export default function App() {
 
         if (data && data.length > 0) {
           setProjects(data as Project[]);
-          // Default to the most recently updated project if none selected
           if (!activeProjectId) {
             setActiveProjectId(data[0].id);
           }
         } else if (!error) {
-          // Initialize first project if none exist
-          console.log('[Supabase] No projects found, creating initial one...');
-          const userProjectId = `project-${user.id}-${Date.now()}`;
-          const initialProject = { ...INITIAL_PROJECT, owner_id: user.id, id: userProjectId };
-          const { error: insertError } = await supabase.from('projects').insert(initialProject);
-          if (insertError) {
-            console.error('[Supabase] Error creating initial project:', insertError.message);
-          } else {
-            setProjects([initialProject]);
-            setActiveProjectId(userProjectId);
-          }
+          console.log('[Supabase] No projects found, creating initial via RPC...');
+          const userProjectId = crypto.randomUUID();
+          const initialProject: Partial<Project> = { 
+            id: userProjectId,
+            name: "Meu Novo Livro",
+            owner_id: user.id,
+            settings: {
+              target_word_count: 50000,
+              session_target: 1000,
+              deadline: null,
+              composition_theme: 'sepia',
+              theme: 'traditional',
+              paper_width: 800,
+              background_opacity: 0.9,
+            }
+          };
+          
+          await supabase.from('projects').insert(initialProject);
+          await supabase.rpc('create_project_structure', { p_project_id: userProjectId });
+          
+          setProjects([initialProject as Project]);
+          setActiveProjectId(userProjectId);
         }
       };
 
       fetchProjects();
 
-      // Subscription for projects list
       const projectsChannel = supabase.channel(`projects-list-${user.id}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `owner_id=eq.${user.id}` }, 
           () => fetchProjects())
@@ -443,37 +417,16 @@ export default function App() {
         projectsChannel.unsubscribe();
       };
     } else {
-      // Fallback to LocalStorage when not logged in
-      const savedProject = localStorage.getItem('scribeflow-project');
-      const savedDocs = localStorage.getItem('scribeflow-docs');
-      
-      if (savedProject) {
-        try {
-          const p = JSON.parse(savedProject);
-          // Merging with INITIAL_PROJECT to ensure settings and other fields exist
-          const validatedProject = { 
-            ...INITIAL_PROJECT, 
-            ...p, 
-            settings: { ...INITIAL_PROJECT.settings, ...(p.settings || {}) } 
-          };
-          setProjects([validatedProject]);
-          setActiveProjectId(validatedProject.id);
-        } catch (e) {
-          console.error('[LocalStorage] Error parsing project:', e);
-        }
-      }
-      
-      if (savedDocs) {
-        try {
-          setDocs(JSON.parse(savedDocs));
-        } catch (e) {}
-      }
+      setProjects([]);
     }
-  }, [user, isAuthReady]);
+  }, [user, isAuthReady]); // Active project omission is acceptable since projectsChannel triggers data refresh, not setActiveProjectId reassignment unless it is null.
 
   // Sync docs for the active project
   useEffect(() => {
-    if (!user || !activeProjectId) return;
+    if (!user || !activeProjectId) {
+      setDocs([]);
+      return;
+    }
 
     const fetchDocs = async () => {
       const { data, error } = await supabase
@@ -488,40 +441,12 @@ export default function App() {
 
       if (data && data.length > 0) {
         setDocs(data as Doc[]);
-      } else if (!error) {
-        // Initialize docs if empty for this project
-        console.log('[Supabase] No docs found for project, initializing defaults...');
-        
-        // Map old IDs to new IDs to maintain hierarchy
-        const idMapping: Record<string, string> = {};
-        INITIAL_DOCS.forEach(d => {
-          idMapping[d.id] = `${d.type}-${activeProjectId}-${Math.random().toString(36).substr(2, 9)}`;
-        });
-
-        const docsWithProjectId = INITIAL_DOCS.map(d => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { is_expanded, ...docWithoutUIState } = d;
-          return { 
-            ...docWithoutUIState, 
-            id: idMapping[d.id],
-            project_id: activeProjectId,
-            parent_id: d.parent_id ? idMapping[d.parent_id] : null
-          };
-        });
-
-        const { error: insertError } = await supabase.from('docs').insert(docsWithProjectId);
-        if (insertError) {
-          console.error('[Supabase] Error initializing docs:', insertError.message);
-        } else {
-          setDocs(docsWithProjectId as Doc[]);
-        }
       }
     };
 
     fetchDocs();
 
-    // Subscribe to docs for this specific project
-    const docsChannel = supabase.channel(`docs-${activeProjectId}`)
+    const docsChannel = supabase.channel(`docs-list-${activeProjectId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${activeProjectId}` }, 
         () => fetchDocs())
       .subscribe();
@@ -529,15 +454,9 @@ export default function App() {
     return () => {
       docsChannel.unsubscribe();
     };
-  }, [activeProjectId, user]);
+  }, [user, activeProjectId]);
 
-  // Persistence for non-logged in users
-  useEffect(() => {
-    if (!user) {
-      localStorage.setItem('scribeflow-project', JSON.stringify(project));
-      localStorage.setItem('scribeflow-docs', JSON.stringify(docs));
-    }
-  }, [project, docs, user]);
+  const { manuscript: manuscriptFolder, trash: trashFolder, characters: charactersFolder, places: placesFolder, research: researchFolder } = useStructuralFolders(docs);
 
   // Derived State
   const selectedDoc = useMemo(() => 
@@ -573,8 +492,8 @@ export default function App() {
       // Clear local state on logout
       setProjects([]);
       setActiveProjectId(null);
-      setDocs(INITIAL_DOCS);
-      setSelectedDocId(INITIAL_DOCS[0].id);
+      setDocs([]);
+      setSelectedDocId(null);
     } catch (e) {
       console.error('Logout failed:', e);
     }
@@ -582,6 +501,14 @@ export default function App() {
 
   // Handlers
   const handleAddDoc = async (parent_id: string | null, type: DocumentType) => {
+    let final_parent_id = parent_id;
+    if (!final_parent_id) {
+      if (type === 'characters') final_parent_id = charactersFolder?.id || null;
+      else if (type === 'places') final_parent_id = placesFolder?.id || null;
+      else if (type === 'research') final_parent_id = researchFolder?.id || null;
+      else if (type === 'text') final_parent_id = manuscriptFolder?.id || null;
+    }
+
     const newId = crypto.randomUUID();
     const newDoc: Doc = {
       id: newId,
@@ -590,8 +517,8 @@ export default function App() {
              type === 'places' ? 'New Setting' : 'New Document',
       content: '',
       type,
-      parent_id,
-      order: docs.filter(d => d.parent_id === parent_id).length,
+      parent_id: final_parent_id,
+      order: docs.filter(d => d.parent_id === final_parent_id).length,
       metadata: {
         status: 'To Do',
         label: 'none',
@@ -633,20 +560,35 @@ export default function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const handleDeleteDoc = (id: string) => {
+    const targetDoc = docs.find(d => d.id === id);
+    if (targetDoc && targetDoc.folder_role) return; // Cannot delete structural folders
     setDeleteConfirmId(id);
   };
 
   const confirmDelete = async () => {
     if (!deleteConfirmId) return;
     
-    if (user && activeProjectId) {
+    if (user && activeProjectId && trashFolder) {
       try {
-        await supabase.from('docs').delete().eq('id', deleteConfirmId).eq('project_id', activeProjectId);
+        await supabase.from('docs')
+          .update({ 
+            parent_id: trashFolder.id, 
+            metadata: { 
+              ...docs.find(d => d.id === deleteConfirmId)?.metadata, 
+              is_include_in_compile: false 
+            } 
+          })
+          .eq('id', deleteConfirmId)
+          .eq('project_id', activeProjectId);
       } catch (e) {
-        console.error('Error deleting doc:', e);
+        console.error('Error moving doc to trash:', e);
       }
-    } else {
-      setDocs(docs.filter(d => d.id !== deleteConfirmId && d.parent_id !== deleteConfirmId));
+    } else if (trashFolder) {
+      setDocs(docs.map(d => 
+        d.id === deleteConfirmId 
+          ? { ...d, parent_id: trashFolder.id, metadata: { ...d.metadata, is_include_in_compile: false } } 
+          : d
+      ));
     }
 
     if (selectedDocId === deleteConfirmId) setSelectedDocId(null);
@@ -654,51 +596,39 @@ export default function App() {
   };
 
   const handleCreateProject = async (name: string) => {
-    if (!user) return;
-    const newProjectId = `project-${user.id}-${Date.now()}`;
-    const newProject: Project = {
-      ...INITIAL_PROJECT,
+    if (!user) {
+      alert("⚠️ Atenção: Você precisa fazer o Login no sistema para poder criar novos projetos. Múltiplos projetos requerem sincronização na nuvem.");
+      return;
+    }
+    const newProjectId = crypto.randomUUID();
+    
+    const { data: insertedData, error } = await supabase.from('projects').insert({
       id: newProjectId,
       name,
       owner_id: user.id,
-      created_at: Date.now(),
-      updated_at: Date.now()
-    };
+      settings: {
+        target_word_count: 50000,
+        session_target: 1000,
+        deadline: null,
+        composition_theme: 'sepia',
+        theme: 'traditional',
+        paper_width: 800,
+        background_opacity: 0.9,
+      }
+    }).select();
 
-    const { data: insertedData, error } = await supabase.from('projects').insert(newProject).select();
     if (!error && insertedData && insertedData.length > 0) {
       const createdProject = insertedData[0] as Project;
       setProjects([createdProject, ...projects]);
       setActiveProjectId(newProjectId);
-
       try {
-        const idMapping: Record<string, string> = {};
-        INITIAL_DOCS.forEach(d => {
-          idMapping[d.id] = `${d.type}-${newProjectId}-${Math.random().toString(36).substring(2, 11)}`;
-        });
-
-        const docsWithProjectId = INITIAL_DOCS.map(d => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { is_expanded, ...docWithoutUIState } = d as any;
-          return { 
-            ...docWithoutUIState, 
-            id: idMapping[d.id],
-            project_id: newProjectId,
-            parent_id: d.parent_id ? idMapping[d.parent_id] : null
-          };
-        });
-
-        const { error: docError } = await supabase.from('docs').insert(docsWithProjectId);
-        if (docError) {
-          console.error('[Supabase] Error creating initial docs:', docError.message);
-        }
+        await supabase.rpc('create_project_structure', { p_project_id: newProjectId });
       } catch (e) {
-        console.error('Failed to initialize project docs', e);
+        console.error('Failed to initialize project docs via RPC', e);
       }
-      
     } else {
       console.error('[Supabase] Error creating project:', error);
-      alert('Failed to create project. Please verify permissions. Error: ' + (error?.message || 'Unknown response'));
+      alert('Failed to create project. Error: ' + (error?.message || 'Unknown response'));
     }
   };
 
@@ -828,7 +758,7 @@ export default function App() {
   return (
     <div className={cn(
       "flex flex-col h-screen bg-surface-background overflow-hidden font-sans text-on-surface select-none",
-      (project?.settings?.theme || INITIAL_PROJECT.settings.theme) === 'dark' && "dark-theme"
+      (project?.settings?.theme || 'traditional') === 'dark' && "dark-theme"
     )}>
       {/* macOS Menu Bar */}
       <MenuBar menus={menus} />
@@ -1121,7 +1051,7 @@ export default function App() {
       <SettingsModal 
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        settings={project?.settings || INITIAL_PROJECT.settings}
+        settings={project?.settings || { target_word_count: 50000, session_target: 1000, deadline: null, composition_theme: 'sepia', theme: 'traditional', paper_width: 800, background_opacity: 0.9 }}
         onUpdateSettings={async (settings) => {
           if (!project) return;
           const updatedSettings = { ...project.settings, ...settings };

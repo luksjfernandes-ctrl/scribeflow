@@ -1,6 +1,6 @@
 export type DocumentType = 'text' | 'folder' | 'research' | 'trash' | 'front-matter' | 'characters' | 'places';
-
 export type ViewMode = 'scrivenings' | 'corkboard' | 'outliner' | 'editor';
+export type FolderRole = 'manuscript' | 'characters' | 'places' | 'research' | 'trash';
 
 export interface Snapshot {
   id: string;
@@ -51,6 +51,7 @@ export interface DocumentMetadata {
 
 export interface Doc {
   id: string;
+  project_id?: string;
   title: string;
   content: string;
   type: DocumentType;
@@ -58,6 +59,7 @@ export interface Doc {
   order: number;
   metadata: DocumentMetadata;
   is_expanded?: boolean;
+  folder_role?: FolderRole | null;
 }
 
 export interface ProjectSettings {
