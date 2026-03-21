@@ -366,6 +366,10 @@ export default function App() {
           .eq('owner_id', user.id)
           .order('updated_at', { ascending: false });
 
+        if (error) {
+          console.error('[Supabase] Error fetching projects:', error.message);
+        }
+
         if (data && data.length > 0) {
           setProjects(data as Project[]);
           // Default to the most recently updated project if none selected
@@ -375,12 +379,17 @@ export default function App() {
           }
         } else if (!error) {
           // Initialize first project if none exist
+          console.log('[Supabase] No projects found, creating initial one...');
           const userProjectId = `project-${user.id}-${Date.now()}`;
           const initialProject = { ...INITIAL_PROJECT, owner_id: user.id, id: userProjectId };
-          await supabase.from('projects').insert(initialProject);
-          setProjects([initialProject]);
-          setActiveProjectId(userProjectId);
-          setProject(initialProject);
+          const { error: insertError } = await supabase.from('projects').insert(initialProject);
+          if (insertError) {
+            console.error('[Supabase] Error creating initial project:', insertError.message);
+          } else {
+            setProjects([initialProject]);
+            setActiveProjectId(userProjectId);
+            setProject(initialProject);
+          }
         }
       };
 
@@ -428,17 +437,35 @@ export default function App() {
         .eq('project_id', activeProjectId)
         .order('order', { ascending: true });
 
+      if (error) {
+        console.error('[Supabase] Error fetching docs:', error.message);
+      }
+
       if (data && data.length > 0) {
         setDocs(data as Doc[]);
       } else if (!error) {
         // Initialize docs if empty for this project
+        console.log('[Supabase] No docs found for project, initializing defaults...');
+        
+        // Map old IDs to new IDs to maintain hierarchy
+        const idMapping: Record<string, string> = {};
+        INITIAL_DOCS.forEach(d => {
+          idMapping[d.id] = `${d.type}-${activeProjectId}-${Math.random().toString(36).substr(2, 9)}`;
+        });
+
         const docsWithProjectId = INITIAL_DOCS.map(d => ({ 
           ...d, 
-          id: `${d.type}-${activeProjectId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          project_id: activeProjectId 
+          id: idMapping[d.id],
+          project_id: activeProjectId,
+          parent_id: d.parent_id ? idMapping[d.parent_id] : null
         }));
-        await supabase.from('docs').insert(docsWithProjectId);
-        setDocs(docsWithProjectId);
+
+        const { error: insertError } = await supabase.from('docs').insert(docsWithProjectId);
+        if (insertError) {
+          console.error('[Supabase] Error initializing docs:', insertError.message);
+        } else {
+          setDocs(docsWithProjectId as Doc[]);
+        }
       }
     };
 
@@ -719,10 +746,21 @@ export default function App() {
     setDocs(updatedDocs);
   };
 
+  if (!isAuthReady || (user && projects.length === 0 && !project)) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#1a1a1a]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+          <p className="text-gray-400 font-serif italic tracking-wide">Invocando seu santuário...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn(
       "flex flex-col h-screen bg-surface-background overflow-hidden font-sans text-on-surface select-none",
-      project.settings.theme === 'dark' && "dark-theme"
+      (project?.settings?.theme || INITIAL_PROJECT.settings.theme) === 'dark' && "dark-theme"
     )}>
       {/* macOS Menu Bar */}
       <MenuBar menus={menus} />
@@ -887,6 +925,7 @@ export default function App() {
               selectedDocId={selectedDocId}
               onSelectDoc={navigateTo}
               onAddDoc={handleAddDoc}
+              onUpdateDoc={handleUpdateDoc}
               onDeleteDoc={handleDeleteDoc}
               onRenameDoc={handleRenameDoc}
               onReorderDocs={handleReorderDocs}
@@ -1110,9 +1149,9 @@ export default function App() {
       {/* Global Footer */}
       <footer className="h-[22px] bg-gradient-to-b from-[#E0DDD5] to-[#D5D2CA] border-t border-[#B5B2AA] flex items-center justify-between px-3 text-[10px] font-mono tracking-wider text-[#6A6760] uppercase">
         <div className="flex items-center">
-          <span className="opacity-70">PROJECT: <span className="font-bold text-[#436127]">{project.name}</span></span>
+          <span className="opacity-70">PROJECT: <span className="font-bold text-[#436127]">{project?.name || 'Loading...'}</span></span>
           <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3" />
-          <span className="opacity-70">WORDS: <span className="font-bold text-[#436127]">{docs.reduce((acc, doc) => acc + (doc.content.replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length), 0)}</span></span>
+          <span className="opacity-70">WORDS: <span className="font-bold text-[#436127]">{docs.reduce((acc, doc) => acc + (doc.content?.replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length || 0), 0)}</span></span>
         </div>
         <div className="flex items-center">
           <span className="opacity-70">{selectedDoc ? `SELECTED: ${selectedDoc.title}` : 'NO SELECTION'}</span>
