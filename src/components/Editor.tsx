@@ -168,8 +168,8 @@ export function Editor({ content, onChange, title, onTitleChange, doc, zoom, onZ
           style={{ 
             transform: `scale(${zoom / 100})`, 
             transformOrigin: 'top center',
-            width: `${doc.metadata.sectionType === 'Heading' ? '100%' : 'auto'}`,
-            maxWidth: `${doc.metadata.sectionType === 'Heading' ? 'none' : '800px'}`
+            width: `${doc.metadata.section_type === 'Heading' ? '100%' : 'auto'}`,
+            maxWidth: `${doc.metadata.section_type === 'Heading' ? 'none' : '800px'}`
           }}
         >
           <input 

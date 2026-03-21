@@ -33,16 +33,16 @@ export function Inspector({ doc, onUpdateMetadata }: InspectorProps) {
   const metadata = doc.metadata || {
     status: 'To Do',
     label: 'none',
-    labelColor: 'transparent',
+    label_color: 'transparent',
     synopsis: '',
     notes: '',
-    targetWordCount: 0,
-    isIncludeInCompile: true,
-    sectionType: 'Scene',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    target_word_count: 0,
+    is_include_in_compile: true,
+    section_type: 'Scene',
+    created_at: Date.now(),
+    updated_at: Date.now(),
     keywords: [],
-    customMetadata: {},
+    custom_metadata: {},
     snapshots: [],
     comments: [],
     bookmarks: [],
@@ -118,8 +118,8 @@ export function Inspector({ doc, onUpdateMetadata }: InspectorProps) {
               <input 
                 type="checkbox" 
                 id="include-compile"
-                checked={metadata.isIncludeInCompile}
-                onChange={(e) => onUpdateMetadata(doc.id, { isIncludeInCompile: e.target.checked })}
+                checked={metadata.is_include_in_compile}
+                onChange={(e) => onUpdateMetadata(doc.id, { is_include_in_compile: e.target.checked })}
                 className="rounded border-border-color text-accent-color focus:ring-accent-color/20"
               />
               <label htmlFor="include-compile" className="font-medium">Include in Compile</label>
@@ -127,7 +127,7 @@ export function Inspector({ doc, onUpdateMetadata }: InspectorProps) {
             
             <div className="flex items-center justify-between text-[10px] text-text-secondary uppercase tracking-wider font-bold pt-2 border-t border-border-color">
               <span>Created</span>
-              <span className="text-text-primary">{format(metadata.createdAt, 'MMM d, yyyy')}</span>
+              <span className="text-text-primary">{format(metadata.created_at, 'MMM d, yyyy')}</span>
             </div>
           </div>
         </div>

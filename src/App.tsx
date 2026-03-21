@@ -28,7 +28,7 @@ import {
   Folder,
   File
 } from 'lucide-react';
-import { Doc, Project, ViewMode, DocumentType } from './types';
+import { Doc, Project, ViewMode, DocumentType, DocumentMetadata } from './types';
 import { INITIAL_PROJECT, INITIAL_DOCS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
@@ -97,7 +97,7 @@ export default function App() {
   const handleExport = (format: string) => {
     // 1. Filter documents marked for compile
     const compileDocs = docs
-      .filter(d => d.type === 'text' && d.metadata.isIncludeInCompile)
+      .filter(d => d.type === 'text' && d.metadata.is_include_in_compile)
       .sort((a, b) => a.order - b.order);
     
     if (compileDocs.length === 0) {
@@ -436,7 +436,7 @@ export default function App() {
     if (!selectedDoc) return [];
     const folderTypes: DocumentType[] = ['folder', 'research', 'characters', 'places', 'front-matter', 'trash'] as DocumentType[];
     if (folderTypes.includes(selectedDoc.type)) {
-      return docs.filter(d => d.parentId === selectedDoc.id).sort((a, b) => a.order - b.order);
+      return docs.filter(d => d.parent_id === selectedDoc.id).sort((a, b) => a.order - b.order);
     }
     return [selectedDoc];
   }, [docs, selectedDoc]);
@@ -468,29 +468,30 @@ export default function App() {
   };
 
   // Handlers
-  const handleAddDoc = async (parentId: string | null, type: DocumentType) => {
+  const handleAddDoc = async (parent_id: string | null, type: DocumentType) => {
+    const newId = crypto.randomUUID();
     const newDoc: Doc = {
-      id: `doc-${Date.now()}`,
+      id: newId,
       title: type === 'folder' ? 'New Folder' : 
              type === 'characters' ? 'New Character' : 
              type === 'places' ? 'New Setting' : 'New Document',
       content: '',
       type,
-      parentId,
-      order: docs.filter(d => d.parentId === parentId).length,
+      parent_id,
+      order: docs.filter(d => d.parent_id === parent_id).length,
       metadata: {
         status: 'To Do',
-        label: 'No Label',
-        labelColor: 'transparent',
+        label: 'none',
+        label_color: 'transparent',
         synopsis: '',
         notes: '',
-        targetWordCount: 0,
-        isIncludeInCompile: true,
-        sectionType: type === 'folder' ? 'Heading' : 'Scene',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        target_word_count: 0,
+        is_include_in_compile: true,
+        section_type: type === 'folder' ? 'Heading' : 'Scene',
+        created_at: Date.now(),
+        updated_at: Date.now(),
         keywords: [],
-        customMetadata: {},
+        custom_metadata: {},
         snapshots: [],
         comments: [],
         bookmarks: [],
@@ -510,9 +511,9 @@ export default function App() {
     }
     
     setSelectedDocId(newDoc.id);
-    if (parentId) {
+    if (parent_id) {
       const newExpanded = new Set(expandedFolders);
-      newExpanded.add(parentId);
+      newExpanded.add(parent_id);
       setExpandedFolders(newExpanded);
     }
   };
@@ -534,7 +535,7 @@ export default function App() {
         console.error('Error deleting doc:', e);
       }
     } else {
-      setDocs(docs.filter(d => d.id !== deleteConfirmId && d.parentId !== deleteConfirmId));
+      setDocs(docs.filter(d => d.id !== deleteConfirmId && d.parent_id !== deleteConfirmId));
     }
 
     if (selectedDocId === deleteConfirmId) setSelectedDocId(null);
@@ -542,41 +543,45 @@ export default function App() {
   };
 
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
-    const updatedAt = Date.now();
+    const updated_at = Date.now();
     if (user) {
       const userProjectId = `project-${user.id}`;
       try {
-        await supabase.from('docs').update({ ...updates, updated_at: updatedAt }).eq('id', id).eq('project_id', userProjectId);
+        await supabase.from('docs').update({ ...updates, updated_at: updated_at }).eq('id', id).eq('project_id', userProjectId);
       } catch (e) {
         console.error('Error updating doc:', e);
       }
     } else {
-      setDocs(docs.map(d => d.id === id ? { ...d, ...updates, updatedAt } : d));
+      setDocs(docs.map(d => d.id === id ? { ...d, ...updates, updated_at } : d));
     }
   };
 
-  const handleUpdateMetadata = async (id: string, metadataUpdates: Partial<Doc['metadata']>) => {
-    const updatedAt = Date.now();
+  const handleUpdateMetadata = async (id: string, metadata_updates: Partial<DocumentMetadata>) => {
+    const updated_at = Date.now();
     const docToUpdate = docs.find(d => d.id === id);
     if (!docToUpdate) return;
 
-    const newMetadata = { ...docToUpdate.metadata, ...metadataUpdates };
+    const newMetadata: DocumentMetadata = {
+      ...docToUpdate.metadata,
+      ...metadata_updates,
+      updated_at // Always update this
+    };
 
     if (user) {
       const userProjectId = `project-${user.id}`;
       try {
-        await supabase.from('docs').update({ 
+        await supabase.from('docs').update({
           metadata: newMetadata,
-          updated_at: updatedAt 
+          updated_at: updated_at
         }).eq('id', id).eq('project_id', userProjectId);
       } catch (e) {
         console.error('Error updating metadata:', e);
       }
     } else {
-      setDocs(docs.map(d => d.id === id ? { 
-        ...d, 
+      setDocs(docs.map(d => d.id === id ? {
+        ...d,
         metadata: newMetadata,
-        updatedAt 
+        updated_at
       } : d));
     }
   };
@@ -611,10 +616,10 @@ export default function App() {
     const activeDoc = docs.find(d => d.id === activeId);
     const overDoc = docs.find(d => d.id === overId);
 
-    if (!activeDoc || !overDoc || activeDoc.parentId !== overDoc.parentId) return;
+    if (!activeDoc || !overDoc || activeDoc.parent_id !== overDoc.parent_id) return;
 
     const sameLevelDocs = docs
-      .filter(d => d.parentId === activeDoc.parentId)
+      .filter(d => d.parent_id === activeDoc.parent_id)
       .sort((a, b) => a.order - b.order);
 
     const oldIndex = sameLevelDocs.findIndex(d => d.id === activeId);

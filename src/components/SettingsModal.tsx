@@ -38,30 +38,30 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
           <div className="settings-row">
             <span className="settings-label">Target Word Count</span>
             <input 
-              type="number"
-              className="settings-control w-24 bg-white border border-[#B5B2AA] rounded px-2 py-1 text-right"
-              value={settings.targetWordCount}
-              onChange={(e) => onUpdateSettings({ targetWordCount: parseInt(e.target.value) || 0 })}
+              type="number" 
+              className="inspector-dropdown"
+              value={settings.target_word_count}
+              onChange={(e) => onUpdateSettings({ target_word_count: parseInt(e.target.value) || 0 })}
+            />
+          </div>
+          
+          <div className="space-y-1">
+            <div className="inspector-section-header">SESSION TARGET</div>
+            <input 
+              type="number" 
+              className="inspector-dropdown"
+              value={settings.session_target}
+              onChange={(e) => onUpdateSettings({ session_target: parseInt(e.target.value) || 0 })}
             />
           </div>
 
-          <div className="settings-row">
-            <span className="settings-label">Session Target</span>
+          <div className="space-y-1">
+            <div className="inspector-section-header">PAPER WIDTH (PX)</div>
             <input 
-              type="number"
-              className="settings-control w-24 bg-white border border-[#B5B2AA] rounded px-2 py-1 text-right"
-              value={settings.sessionTarget}
-              onChange={(e) => onUpdateSettings({ sessionTarget: parseInt(e.target.value) || 0 })}
-            />
-          </div>
-
-          <div className="settings-row">
-            <span className="settings-label">Paper Width (px)</span>
-            <input 
-              type="number"
-              className="settings-control w-24 bg-white border border-[#B5B2AA] rounded px-2 py-1 text-right"
-              value={settings.paperWidth}
-              onChange={(e) => onUpdateSettings({ paperWidth: parseInt(e.target.value) || 0 })}
+              type="number" 
+              className="inspector-dropdown"
+              value={settings.paper_width}
+              onChange={(e) => onUpdateSettings({ paper_width: parseInt(e.target.value) || 0 })}
             />
           </div>
         </div>

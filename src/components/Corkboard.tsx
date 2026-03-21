@@ -39,10 +39,10 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
                   {doc.title}
                 </span>
               </div>
-              {doc.metadata.labelColor && doc.metadata.labelColor !== 'transparent' && (
+              {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
                 <div 
-                  className="w-2.5 h-2.5 rounded-full shadow-sm" 
-                  style={{ backgroundColor: doc.metadata.labelColor }}
+                  className="w-full h-1" 
+                  style={{ backgroundColor: doc.metadata.label_color }}
                 />
               )}
             </div>

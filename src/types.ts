@@ -34,16 +34,16 @@ export interface Keyword {
 export interface DocumentMetadata {
   status: string;
   label: string;
-  labelColor: string;
+  label_color: string;
   synopsis: string;
   notes: string;
-  targetWordCount: number;
-  isIncludeInCompile: boolean;
-  sectionType: string;
-  createdAt: number;
-  updatedAt: number;
+  target_word_count: number;
+  is_include_in_compile: boolean;
+  section_type: string;
+  created_at: number;
+  updated_at: number;
   keywords: Keyword[];
-  customMetadata: Record<string, string>;
+  custom_metadata: Record<string, string>;
   snapshots: Snapshot[];
   comments: Comment[];
   bookmarks: Bookmark[];
@@ -54,27 +54,27 @@ export interface Doc {
   title: string;
   content: string;
   type: DocumentType;
-  parentId: string | null;
+  parent_id: string | null;
   order: number;
   metadata: DocumentMetadata;
-  isExpanded?: boolean;
+  is_expanded?: boolean;
 }
 
 export interface ProjectSettings {
-  targetWordCount: number;
-  sessionTarget: number;
+  target_word_count: number;
+  session_target: number;
   deadline: number | null;
-  compositionTheme: 'dark' | 'sepia' | 'green' | 'custom';
+  composition_theme: 'dark' | 'sepia' | 'green' | 'custom';
   theme: 'traditional' | 'dark';
-  paperWidth: number;
-  backgroundOpacity: number;
+  paper_width: number;
+  background_opacity: number;
 }
 
 export interface Project {
   id: string;
   name: string;
-  ownerId: string;
-  createdAt: number;
-  updatedAt: number;
+  owner_id: string;
+  created_at: number;
+  updated_at: number;
   settings: ProjectSettings;
 }

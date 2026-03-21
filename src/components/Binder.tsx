@@ -57,24 +57,24 @@ interface SortableBinderItemProps {
   doc: Doc;
   depth: number;
   isSelected: boolean;
-  isExpanded: boolean;
+  is_expanded: boolean;
   onSelect: (id: string) => void;
   onToggle: (id: string) => void;
-  onAdd: (parentId: string | null, type: DocumentType) => void;
+  onAdd: (parent_id: string | null, type: DocumentType) => void;
   onDelete: (id: string) => void;
   onRename: (id: string, newTitle: string) => void;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
   isRenaming: boolean;
   onRenameComplete: () => void;
   childrenDocs: Doc[];
-  renderChildren: (parentId: string, depth: number) => React.ReactNode;
+  renderChildren: (parent_id: string, depth: number) => React.ReactNode;
 }
 
 function SortableBinderItem({
   doc,
   depth,
   isSelected,
-  isExpanded,
+  is_expanded,
   onSelect,
   onToggle,
   onAdd,
@@ -141,7 +141,7 @@ function SortableBinderItem({
 
   return (
     <div ref={setNodeRef} style={style} className="select-none">
-      <div 
+      <div
         className={cn(
           "binder-item group",
           isSelected && "selected"
@@ -151,7 +151,7 @@ function SortableBinderItem({
         onDoubleClick={() => setIsEditing(true)}
         onContextMenu={(e) => onContextMenu(e, doc.id)}
       >
-        <div 
+        <div
           className="w-4 h-4 mr-0.5 flex items-center justify-center cursor-default"
           onClick={(e) => {
             if (doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter') {
@@ -161,21 +161,21 @@ function SortableBinderItem({
           }}
         >
           {(doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter') && (
-            <div 
-              className={cn("disclosure-triangle", isExpanded && "expanded")}
-              dangerouslySetInnerHTML={{ __html: isExpanded ? ICONS.disclosureExpanded : ICONS.disclosure }}
+            <div
+              className={cn("disclosure-triangle", is_expanded && "expanded")}
+              dangerouslySetInnerHTML={{ __html: is_expanded ? ICONS.disclosureExpanded : ICONS.disclosure }}
             />
           )}
         </div>
-        
+
         <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">
           {getDocIcon(doc.type, doc.id)}
         </div>
-        
-        {doc.metadata.labelColor && doc.metadata.labelColor !== 'transparent' && (
-          <div 
-            className="w-2 h-2 rounded-full mr-2 shadow-sm" 
-            style={{ backgroundColor: doc.metadata.labelColor }}
+
+        {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
+          <div
+            className="w-2 h-2 rounded-full mr-2 shadow-sm"
+            style={{ backgroundColor: doc.metadata.label_color }}
           />
         )}
 
@@ -192,15 +192,15 @@ function SortableBinderItem({
         ) : (
           <span className="flex-1 truncate text-[13px] tracking-tight">{doc.title}</span>
         )}
-        
+
         <div className="flex items-center gap-2">
           {wordCount > 0 && (
             <span className="text-[10px] text-on-surface-variant/60 font-mono opacity-0 group-hover:opacity-100">{wordCount}</span>
           )}
         </div>
       </div>
-      
-      {isExpanded && childrenDocs.length > 0 && (
+
+      {is_expanded && childrenDocs.length > 0 && (
         <div className="">
           {renderChildren(doc.id, depth + 1)}
         </div>
@@ -213,7 +213,7 @@ interface BinderProps {
   docs: Doc[];
   selectedDocId: string | null;
   onSelectDoc: (id: string) => void;
-  onAddDoc: (parentId: string | null, type: DocumentType) => void;
+  onAddDoc: (parent_id: string | null, type: DocumentType) => void;
   onDeleteDoc: (id: string) => void;
   onRenameDoc: (id: string, newTitle: string) => void;
   onReorderDocs: (activeId: string, overId: string) => void;
@@ -224,11 +224,11 @@ interface BinderProps {
   onRenameComplete: () => void;
 }
 
-export function Binder({ 
-  docs, 
-  selectedDocId, 
-  onSelectDoc, 
-  onAddDoc, 
+export function Binder({
+  docs,
+  selectedDocId,
+  onSelectDoc,
+  onAddDoc,
   onDeleteDoc,
   onRenameDoc,
   onReorderDocs,
@@ -258,16 +258,16 @@ export function Binder({
     }
   };
 
-  const renderChildren = (parentId: string | null, depth: number = 0) => {
+  const renderChildren = (parent_id: string | null, depth: number = 0) => {
     const children = docs
-      .filter(d => d.parentId === parentId)
+      .filter(d => d.parent_id === parent_id)
       .sort((a, b) => a.order - b.order);
 
     if (children.length === 0) return null;
 
     return (
-      <SortableContext 
-        items={children.map(d => d.id)} 
+      <SortableContext
+        items={children.map(d => d.id)}
         strategy={verticalListSortingStrategy}
       >
         {children.map(doc => {
@@ -281,7 +281,7 @@ export function Binder({
               doc={doc}
               depth={depth}
               isSelected={selectedDocId === doc.id}
-              isExpanded={expandedFolders.has(doc.id)}
+              is_expanded={expandedFolders.has(doc.id)}
               onSelect={onSelectDoc}
               onToggle={onToggleFolder}
               onAdd={onAddDoc}
@@ -290,7 +290,7 @@ export function Binder({
               onContextMenu={onContextMenu}
               isRenaming={renamingId === doc.id}
               onRenameComplete={onRenameComplete}
-              childrenDocs={docs.filter(d => d.parentId === doc.id)}
+              childrenDocs={docs.filter(d => d.parent_id === doc.id)}
               renderChildren={renderChildren}
             />
           );

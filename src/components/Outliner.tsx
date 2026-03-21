@@ -81,26 +81,26 @@ export function Outliner({ docs, onSelectDoc, onUpdateMetadata }: OutlinerProps)
               </td>
               <td className="p-3 border-r border-outline-variant/20 text-right">
                 <input 
-                  type="number" 
-                  className="w-full bg-transparent border-none focus:outline-none text-right text-xs text-on-surface-variant"
-                  value={doc.metadata?.targetWordCount || 0}
+                  type="number"
+                  className="bg-transparent border-none p-0 w-16 text-right focus:ring-0"
+                  value={doc.metadata?.target_word_count || 0}
                   onChange={(e) => {
                     e.stopPropagation();
-                    onUpdateMetadata(doc.id, { targetWordCount: parseInt(e.target.value) || 0 });
+                    onUpdateMetadata(doc.id, { target_word_count: parseInt(e.target.value) || 0 });
                   }}
                   onClick={(e) => e.stopPropagation()}
                 />
               </td>
-              <td className="p-3 border-r border-outline-variant/20 text-center">
+              <td className="px-3 py-2 text-center">
                 <input 
-                  type="checkbox" 
-                  checked={doc.metadata?.isIncludeInCompile || false}
+                  type="checkbox"
+                  className="rounded border-border-color text-accent-color focus:ring-accent-color/20"
+                  checked={doc.metadata?.is_include_in_compile || false}
                   onChange={(e) => {
                     e.stopPropagation();
-                    onUpdateMetadata(doc.id, { isIncludeInCompile: e.target.checked });
+                    onUpdateMetadata(doc.id, { is_include_in_compile: e.target.checked });
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  className="rounded border-outline-variant text-primary focus:ring-primary/20"
                 />
               </td>
               <td className="p-3 text-xs text-on-surface-variant/60 font-serif italic truncate max-w-xs">
