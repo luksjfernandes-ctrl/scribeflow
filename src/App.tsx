@@ -412,10 +412,18 @@ export default function App() {
       if (savedProject) {
         try {
           const p = JSON.parse(savedProject);
-          setProject(p);
-          setProjects([p]);
-          setActiveProjectId(p.id);
-        } catch (e) {}
+          // Merging with INITIAL_PROJECT to ensure settings and other fields exist
+          const validatedProject = { 
+            ...INITIAL_PROJECT, 
+            ...p, 
+            settings: { ...INITIAL_PROJECT.settings, ...(p.settings || {}) } 
+          };
+          setProject(validatedProject);
+          setProjects([validatedProject]);
+          setActiveProjectId(validatedProject.id);
+        } catch (e) {
+          console.error('[LocalStorage] Error parsing project:', e);
+        }
       }
       
       if (savedDocs) {
@@ -565,15 +573,14 @@ export default function App() {
       },
     };
 
-    if (user) {
-      const userProjectId = `project-${user.id}`;
+    if (user && activeProjectId) {
       try {
-        const docWithProjectId = { ...newDoc, project_id: userProjectId };
+        const docWithProjectId = { ...newDoc, project_id: activeProjectId };
         await supabase.from('docs').insert(docWithProjectId);
       } catch (e) {
         console.error('Error adding doc:', e);
       }
-    } else {
+    } else if (!user) {
       setDocs([...docs, newDoc]);
     }
     
@@ -1052,8 +1059,8 @@ export default function App() {
       <SettingsModal 
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
-        settings={project.settings}
-        onUpdateSettings={(settings) => setProject({ ...project, settings: { ...project.settings, ...settings } })}
+        settings={project?.settings || INITIAL_PROJECT.settings}
+        onUpdateSettings={(settings) => project && setProject({ ...project, settings: { ...project.settings, ...settings } })}
       />
       <ExportModal 
         isOpen={isExportOpen}
