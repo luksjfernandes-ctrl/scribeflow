@@ -461,12 +461,16 @@ export default function App() {
           idMapping[d.id] = `${d.type}-${activeProjectId}-${Math.random().toString(36).substr(2, 9)}`;
         });
 
-        const docsWithProjectId = INITIAL_DOCS.map(d => ({ 
-          ...d, 
-          id: idMapping[d.id],
-          project_id: activeProjectId,
-          parent_id: d.parent_id ? idMapping[d.parent_id] : null
-        }));
+        const docsWithProjectId = INITIAL_DOCS.map(d => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { is_expanded, ...docWithoutUIState } = d;
+          return { 
+            ...docWithoutUIState, 
+            id: idMapping[d.id],
+            project_id: activeProjectId,
+            parent_id: d.parent_id ? idMapping[d.parent_id] : null
+          };
+        });
 
         const { error: insertError } = await supabase.from('docs').insert(docsWithProjectId);
         if (insertError) {
@@ -601,10 +605,9 @@ export default function App() {
   const confirmDelete = async () => {
     if (!deleteConfirmId) return;
     
-    if (user) {
-      const userProjectId = `project-${user.id}`;
+    if (user && activeProjectId) {
       try {
-        await supabase.from('docs').delete().eq('id', deleteConfirmId).eq('project_id', userProjectId);
+        await supabase.from('docs').delete().eq('id', deleteConfirmId).eq('project_id', activeProjectId);
       } catch (e) {
         console.error('Error deleting doc:', e);
       }
@@ -659,10 +662,9 @@ export default function App() {
 
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
     const updated_at = Date.now();
-    if (user) {
-      const userProjectId = `project-${user.id}`;
+    if (user && activeProjectId) {
       try {
-        await supabase.from('docs').update({ ...updates, updated_at: updated_at }).eq('id', id).eq('project_id', userProjectId);
+        await supabase.from('docs').update({ ...updates, updated_at: updated_at }).eq('id', id).eq('project_id', activeProjectId);
       } catch (e) {
         console.error('Error updating doc:', e);
       }
@@ -682,13 +684,12 @@ export default function App() {
       updated_at // Always update this
     };
 
-    if (user) {
-      const userProjectId = `project-${user.id}`;
+    if (user && activeProjectId) {
       try {
         await supabase.from('docs').update({
           metadata: newMetadata,
           updated_at: updated_at
-        }).eq('id', id).eq('project_id', userProjectId);
+        }).eq('id', id).eq('project_id', activeProjectId);
       } catch (e) {
         console.error('Error updating metadata:', e);
       }
