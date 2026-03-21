@@ -4,6 +4,8 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { jsPDF } from 'jspdf';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import ProjectsModal from './components/ProjectsModal';
 import { 
   Layout, 
@@ -98,7 +100,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
 
-  const handleExport = (format: string) => {
+  const handleExport = async (format: string) => {
     // 1. Filter documents marked for compile
     const compileDocs = docs
       .filter(d => d.type === 'text' && d.metadata.is_include_in_compile)
@@ -109,65 +111,110 @@ export default function App() {
       return;
     }
 
-    let content = '';
-    let mimeType = 'text/plain';
-    let extension = '.txt';
+    const safeTitle = project?.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'scribeflow';
 
-    switch (format) {
-      case 'txt':
-        content = compileDocs.map(d => `${d.title.toUpperCase()}\n\n${d.content.replace(/<[^>]*>/g, '')}`).join('\n\n' + '='.repeat(40) + '\n\n');
-        mimeType = 'text/plain';
-        extension = '.txt';
-        break;
-      case 'pdf':
-      case 'docx':
-      case 'rtf':
-      case 'epub':
-        // For these formats in a client-side only app without heavy libraries, 
-        // we'll export as HTML which can be opened/converted easily.
-        // In a real production app, we'd use libraries like jspdf or docx.js
-        content = `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <title>${project.name}</title>
-            <style>
-              body { font-family: "Palatino", "Georgia", serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 20px; color: #333; }
-              h1 { text-align: center; margin-bottom: 50px; text-transform: uppercase; letter-spacing: 2px; }
-              h2 { margin-top: 40px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-              .chapter { page-break-after: always; }
-              .metadata { font-size: 0.8em; color: #666; text-align: center; margin-bottom: 100px; }
-            </style>
-          </head>
-          <body>
-            <h1>${project.name}</h1>
-            <div class="metadata">Compiled on ${new Date().toLocaleDateString()}</div>
-            ${compileDocs.map(d => `
-              <div class="chapter">
-                <h2>${d.title}</h2>
-                <div>${d.content}</div>
-              </div>
-            `).join('')}
-          </body>
-          </html>
-        `;
-        mimeType = 'text/html';
-        extension = '.html';
-        break;
-      default:
-        content = compileDocs.map(d => d.content).join('\n\n');
+    const downloadBlob = (blob: Blob, filename: string) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+
+    try {
+      if (format === 'txt') {
+        const content = compileDocs.map(d => `${d.title.toUpperCase()}\n\n${d.content.replace(/<[^>]*>/g, '')}`).join('\n\n' + '='.repeat(40) + '\n\n');
+        const blob = new Blob([content], { type: 'text/plain' });
+        downloadBlob(blob, `${safeTitle}_export.txt`);
+      } 
+      else if (format === 'pdf') {
+        const doc = new jsPDF();
+        let yOffset = 20;
+        
+        doc.setFontSize(24);
+        doc.text(project?.name || 'Manuscript', 105, yOffset, { align: 'center' });
+        yOffset += 20;
+        
+        doc.setFontSize(12);
+        
+        compileDocs.forEach((d, index) => {
+          if (index > 0) {
+            doc.addPage();
+            yOffset = 20;
+          }
+          
+          doc.setFontSize(16);
+          doc.setFont("times", "bold");
+          doc.text(d.title, 20, yOffset);
+          yOffset += 15;
+          
+          doc.setFontSize(12);
+          doc.setFont("times", "normal");
+          
+          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
+          const lines = doc.splitTextToSize(cleanText, 170);
+          
+          for (let i = 0; i < lines.length; i++) {
+            if (yOffset > 270) {
+              doc.addPage();
+              yOffset = 20;
+            }
+            doc.text(lines[i], 20, yOffset);
+            yOffset += 7;
+          }
+        });
+        
+        doc.save(`${safeTitle}_export.pdf`);
+      }
+      else if (format === 'docx') {
+        const children: any[] = [];
+        
+        // Title page
+        children.push(new Paragraph({ text: project?.name || 'Manuscript', heading: HeadingLevel.TITLE, spacing: { after: 400 } }));
+        
+        compileDocs.forEach(d => {
+          children.push(new Paragraph({ text: d.title, heading: HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
+          
+          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
+          const paragraphs = cleanText.split('\n').filter((p: string) => p.trim());
+          
+          paragraphs.forEach((p: string) => {
+            children.push(new Paragraph({
+              children: [new TextRun(p)],
+              spacing: { after: 120 }
+            }));
+          });
+        });
+
+        const docxDoc = new Document({ sections: [{ properties: {}, children }] });
+        const blob = await Packer.toBlob(docxDoc);
+        downloadBlob(blob, `${safeTitle}_export.docx`);
+      }
+      else if (format === 'rtf') {
+        let rtf = `{\\rtf1\\ansi\\ansicpg1252\\deff0\\nouicompat\\deflang1033{\\fonttbl{\\f0\\fnil\\fcharset0 Times New Roman;}}\n`;
+        rtf += `{\\*\n\\title ${project?.name || 'Manuscript'}}\n`;
+        rtf += `\\qc\\b\\fs48 ${project?.name || 'Manuscript'}\\par\\par\\b0\\fs24\\ql\n`;
+        
+        compileDocs.forEach(d => {
+          rtf += `\\page\\b\\fs32 ${d.title}\\par\\b0\\fs24\\par\n`;
+          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\\par\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
+          rtf += cleanText + `\\par\n`;
+        });
+        
+        rtf += `}`;
+        const blob = new Blob([rtf], { type: 'application/rtf' });
+        downloadBlob(blob, `${safeTitle}_export.rtf`);
+      }
+      else if (format === 'epub') {
+        alert("EPUB exporter is currently in development. Please use DOCX or PDF for right now.");
+      }
+    } catch (err) {
+      console.error("Export failed:", err);
+      alert("Failed to export document.");
     }
-
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${project.name.replace(/\s+/g, '_')}_export${extension}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
 
     setIsExportOpen(false);
   };
