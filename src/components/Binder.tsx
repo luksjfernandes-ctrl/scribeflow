@@ -211,6 +211,9 @@ function SortableBinderItem({
 
 interface BinderProps {
   docs: Doc[];
+  projectName: string;
+  activeProjectId: string | null;
+  onOpenProjects: () => void;
   selectedDocId: string | null;
   onSelectDoc: (id: string) => void;
   onAddDoc: (parent_id: string | null, type: DocumentType) => void;
@@ -222,10 +225,14 @@ interface BinderProps {
   onContextMenu: (e: React.MouseEvent, id: string) => void;
   renamingId: string | null;
   onRenameComplete: () => void;
+  onUpdateDoc: (id: string, updates: Partial<Doc>) => void;
 }
 
-export function Binder({
+export const Binder: React.FC<BinderProps> = ({
   docs,
+  projectName,
+  activeProjectId,
+  onOpenProjects,
   selectedDocId,
   onSelectDoc,
   onAddDoc,
@@ -236,8 +243,9 @@ export function Binder({
   expandedFolders,
   onContextMenu,
   renamingId,
-  onRenameComplete
-}: BinderProps) {
+  onRenameComplete,
+  onUpdateDoc
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
 
   const sensors = useSensors(
@@ -301,6 +309,31 @@ export function Binder({
 
   return (
     <div className="flex flex-col h-full binder-container w-full">
+      {/* Project Switcher Header */}
+      <div className="p-3 border-b border-[#333] bg-black/10">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Projeto Ativo</span>
+          <button 
+            onClick={onOpenProjects}
+            className="p-1 hover:bg-black/20 rounded transition-colors text-gray-400 group"
+            title="Gerenciar Projetos"
+          >
+            <ChevronDown className="w-4 h-4 group-hover:text-blue-400" />
+          </button>
+        </div>
+        <button 
+          onClick={onOpenProjects}
+          className="w-full flex items-center gap-2 p-2 hover:bg-black/10 rounded-lg transition-all text-left group"
+        >
+          <div className="w-8 h-8 rounded bg-blue-600/20 flex items-center justify-center shrink-0">
+            <Folder className="w-4 h-4 text-blue-400" />
+          </div>
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-sm font-medium text-gray-200 truncate">{projectName}</div>
+          </div>
+        </button>
+      </div>
+
       <div className="p-3">
         <div className="flex items-center justify-between mb-3">
           <h2 className="binder-header border-none p-0">Binder</h2>
@@ -308,14 +341,14 @@ export function Binder({
             <button 
               onClick={() => onAddDoc(null, 'folder')}
               className="macos-btn w-6 h-6"
-              title="New Folder"
+              title="Novo Grupo"
             >
               <FolderPlus size={14} />
             </button>
             <button 
               onClick={() => onAddDoc(null, 'text')}
               className="macos-btn w-6 h-6"
-              title="New Document"
+              title="Novo Texto"
             >
               <Plus size={14} />
             </button>
@@ -343,7 +376,7 @@ export function Binder({
         </DndContext>
       </div>
 
-      <div className="p-2 border-t border-[#C0BDB5] flex items-center justify-between bg-black/5">
+      <div className="p-2 border-t border-[#333] flex items-center justify-between bg-black/10">
         <div className="flex gap-0.5">
           <button onClick={() => onAddDoc(null, 'text')} className="macos-btn w-6 h-6" title="Add Document">
             <Plus size={14} />

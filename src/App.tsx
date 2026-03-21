@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import ProjectsModal from './components/ProjectsModal';
 import { 
   Layout, 
   Columns, 
@@ -68,11 +69,14 @@ export default function App() {
   }, []);
 
   // State
-  const [project, setProject] = useState<Project>(INITIAL_PROJECT);
-  const [docs, setDocs] = useState<Doc[]>(INITIAL_DOCS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [project, setProject] = useState<Project | null>(null); // Kept for backward compatibility with components
+  const [docs, setDocs] = useState<Doc[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(INITIAL_DOCS[0].id);
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isBinderOpen, setIsBinderOpen] = useState(true);
   const [isCompositionMode, setIsCompositionMode] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -176,7 +180,17 @@ export default function App() {
 
   const menus = [
     {
-      label: 'File',
+      label: 'Projeto',
+      items: [
+        { label: 'Meus Projetos...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
+        { label: 'Novo Projeto', shortcut: '⌘N', onClick: () => handleCreateProject('Novo Projeto') },
+        { divider: true },
+        { label: 'Configurações do Projeto', shortcut: '⌘,', onClick: () => setIsSettingsOpen(true) },
+        { label: 'Exportar Manuscrito...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
+      ]
+    },
+    {
+      label: 'Arquivo',
       items: [
         { label: 'New Text', shortcut: '⌘N', onClick: () => handleAddDoc(null, 'text') },
         { label: 'New Folder', shortcut: '⇧⌘N', onClick: () => handleAddDoc(null, 'folder') },
@@ -344,61 +358,42 @@ export default function App() {
     if (!isAuthReady) return;
 
     if (user) {
-      const userProjectId = `project-${user.id}`;
-      
-      // Fetch and Sync Project
-      const fetchProject = async () => {
+      // Fetch all user projects
+      const fetchProjects = async () => {
         const { data, error } = await supabase
           .from('projects')
           .select('*')
-          .eq('id', userProjectId)
-          .single();
-
-        if (error && error.code === 'PGRST116') {
-          // Initialize project if it doesn't exist
-          const initialProject = { ...INITIAL_PROJECT, owner_id: user.id, id: userProjectId };
-          await supabase.from('projects').insert(initialProject);
-          setProject(initialProject);
-        } else if (data) {
-          setProject(data as Project);
-        }
-      };
-
-      // Fetch and Sync Docs
-      const fetchDocs = async () => {
-        const { data, error } = await supabase
-          .from('docs')
-          .select('*')
-          .eq('project_id', userProjectId)
-          .order('order', { ascending: true });
+          .eq('owner_id', user.id)
+          .order('updated_at', { ascending: false });
 
         if (data && data.length > 0) {
-          setDocs(data as Doc[]);
-        } else {
-          // Initialize docs if empty
-          const docsWithProjectId = INITIAL_DOCS.map(d => ({ ...d, project_id: userProjectId }));
-          await supabase.from('docs').insert(docsWithProjectId);
-          setDocs(INITIAL_DOCS);
+          setProjects(data as Project[]);
+          // Default to the most recently updated project if none selected
+          if (!activeProjectId) {
+            setActiveProjectId(data[0].id);
+            setProject(data[0] as Project);
+          }
+        } else if (!error) {
+          // Initialize first project if none exist
+          const userProjectId = `project-${user.id}-${Date.now()}`;
+          const initialProject = { ...INITIAL_PROJECT, owner_id: user.id, id: userProjectId };
+          await supabase.from('projects').insert(initialProject);
+          setProjects([initialProject]);
+          setActiveProjectId(userProjectId);
+          setProject(initialProject);
         }
       };
 
-      fetchProject();
-      fetchDocs();
+      fetchProjects();
 
-      // Realtime subscriptions
-      const projectChannel = supabase.channel(`project-${userProjectId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `id=eq.${userProjectId}` }, 
-          payload => setProject(payload.new as Project))
-        .subscribe();
-
-      const docsChannel = supabase.channel(`docs-${userProjectId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${userProjectId}` }, 
-          () => fetchDocs()) // Re-fetch on any change for simplicity/consistency
+      // Subscription for projects list
+      const projectsChannel = supabase.channel(`projects-list-${user.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `owner_id=eq.${user.id}` }, 
+          () => fetchProjects())
         .subscribe();
 
       return () => {
-        projectChannel.unsubscribe();
-        docsChannel.unsubscribe();
+        projectsChannel.unsubscribe();
       };
     } else {
       // Fallback to LocalStorage when not logged in
@@ -407,7 +402,10 @@ export default function App() {
       
       if (savedProject) {
         try {
-          setProject(JSON.parse(savedProject));
+          const p = JSON.parse(savedProject);
+          setProject(p);
+          setProjects([p]);
+          setActiveProjectId(p.id);
         } catch (e) {}
       }
       
@@ -418,6 +416,48 @@ export default function App() {
       }
     }
   }, [user, isAuthReady]);
+
+  // Sync docs for the active project
+  useEffect(() => {
+    if (!user || !activeProjectId) return;
+
+    const fetchDocs = async () => {
+      const { data, error } = await supabase
+        .from('docs')
+        .select('*')
+        .eq('project_id', activeProjectId)
+        .order('order', { ascending: true });
+
+      if (data && data.length > 0) {
+        setDocs(data as Doc[]);
+      } else if (!error) {
+        // Initialize docs if empty for this project
+        const docsWithProjectId = INITIAL_DOCS.map(d => ({ 
+          ...d, 
+          id: `${d.type}-${activeProjectId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          project_id: activeProjectId 
+        }));
+        await supabase.from('docs').insert(docsWithProjectId);
+        setDocs(docsWithProjectId);
+      }
+    };
+
+    fetchDocs();
+
+    // Subscribe to docs for this specific project
+    const docsChannel = supabase.channel(`docs-${activeProjectId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${activeProjectId}` }, 
+        () => fetchDocs())
+      .subscribe();
+
+    // Find the current active project object
+    const currentProj = projects.find(p => p.id === activeProjectId);
+    if (currentProj) setProject(currentProj);
+
+    return () => {
+      docsChannel.unsubscribe();
+    };
+  }, [activeProjectId, user]);
 
   // Persistence for non-logged in users
   useEffect(() => {
@@ -540,6 +580,47 @@ export default function App() {
 
     if (selectedDocId === deleteConfirmId) setSelectedDocId(null);
     setDeleteConfirmId(null);
+  };
+
+  const handleCreateProject = async (name: string) => {
+    if (!user) return;
+    const newProjectId = `project-${user.id}-${Date.now()}`;
+    const newProject: Project = {
+      ...INITIAL_PROJECT,
+      id: newProjectId,
+      name,
+      owner_id: user.id,
+      created_at: Date.now(),
+      updated_at: Date.now()
+    };
+
+    const { error } = await supabase.from('projects').insert(newProject);
+    if (!error) {
+      setProjects([newProject, ...projects]);
+      setActiveProjectId(newProjectId);
+    }
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    if (!user || projects.length <= 1) return;
+    
+    const { error } = await supabase.from('projects').delete().eq('id', id);
+    if (!error) {
+      const remainingProjects = projects.filter(p => p.id !== id);
+      setProjects(remainingProjects);
+      if (activeProjectId === id) {
+        setActiveProjectId(remainingProjects[0].id);
+      }
+    }
+  };
+
+  const handleSwitchProject = (id: string) => {
+    const selected = projects.find(p => p.id === id);
+    if (selected) {
+      setActiveProjectId(id);
+      setProject(selected);
+      setSelectedDocId(null); // Reset selection
+    }
   };
 
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
@@ -800,6 +881,9 @@ export default function App() {
           <div style={{ width: binderWidth }} className="flex shrink-0">
             <Binder 
               docs={docs}
+              activeProjectId={activeProjectId}
+              projectName={project?.name || 'Projeto sem nome'}
+              onOpenProjects={() => setIsProjectsModalOpen(true)}
               selectedDocId={selectedDocId}
               onSelectDoc={navigateTo}
               onAddDoc={handleAddDoc}
@@ -936,6 +1020,22 @@ export default function App() {
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         onExport={handleExport}
+      />
+
+      <ProjectsModal
+        isOpen={isProjectsModalOpen}
+        onClose={() => setIsProjectsModalOpen(false)}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        onSelect={(id) => {
+          handleSwitchProject(id);
+          setIsProjectsModalOpen(false);
+        }}
+        onCreate={(name) => {
+          handleCreateProject(name);
+          setIsProjectsModalOpen(false);
+        }}
+        onDelete={handleDeleteProject}
       />
 
       {/* Context Menu */}
