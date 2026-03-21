@@ -618,13 +618,40 @@ export default function App() {
       updated_at: Date.now()
     };
 
-    const { error } = await supabase.from('projects').insert(newProject);
-    if (!error) {
-      setProjects([newProject, ...projects]);
+    const { data: insertedData, error } = await supabase.from('projects').insert(newProject).select();
+    if (!error && insertedData && insertedData.length > 0) {
+      const createdProject = insertedData[0] as Project;
+      setProjects([createdProject, ...projects]);
       setActiveProjectId(newProjectId);
+
+      try {
+        const idMapping: Record<string, string> = {};
+        INITIAL_DOCS.forEach(d => {
+          idMapping[d.id] = `${d.type}-${newProjectId}-${Math.random().toString(36).substring(2, 11)}`;
+        });
+
+        const docsWithProjectId = INITIAL_DOCS.map(d => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { is_expanded, ...docWithoutUIState } = d as any;
+          return { 
+            ...docWithoutUIState, 
+            id: idMapping[d.id],
+            project_id: newProjectId,
+            parent_id: d.parent_id ? idMapping[d.parent_id] : null
+          };
+        });
+
+        const { error: docError } = await supabase.from('docs').insert(docsWithProjectId);
+        if (docError) {
+          console.error('[Supabase] Error creating initial docs:', docError.message);
+        }
+      } catch (e) {
+        console.error('Failed to initialize project docs', e);
+      }
+      
     } else {
       console.error('[Supabase] Error creating project:', error);
-      alert('Failed to create project: ' + error.message);
+      alert('Failed to create project. Please verify permissions. Error: ' + (error?.message || 'Unknown response'));
     }
   };
 

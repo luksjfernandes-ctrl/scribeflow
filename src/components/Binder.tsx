@@ -129,8 +129,14 @@ function SortableBinderItem({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleRename();
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      handleRename();
+    }
     if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
       setEditTitle(doc.title);
       setIsEditing(false);
       if (isRenaming) onRenameComplete();

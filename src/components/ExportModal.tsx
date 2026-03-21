@@ -19,39 +19,39 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
   ];
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2 className="text-sm font-bold">Compile & Export</h2>
-          <button onClick={onClose} className="p-1 hover:bg-black/5 rounded">
-            <X size={16} />
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" onClick={onClose}>
+      <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-[101] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#222]">
+          <h2 className="text-lg font-semibold text-gray-100">Compile & Export</h2>
+          <button onClick={onClose} className="p-1 hover:bg-[#333] rounded-md transition-colors text-gray-400">
+            <X size={20} />
           </button>
         </div>
         
-        <div className="modal-body">
-          <p className="text-xs text-[#5A5A5A] mb-4">Select a format to export your manuscript. This will compile all documents marked for inclusion.</p>
+        <div className="p-4 bg-[#1a1a1a]">
+          <p className="text-sm text-gray-400 mb-4">Selecione um formato para exportar seu manuscrito. Todos os documentos marcados para inclusão serão processados.</p>
           
           <div className="grid grid-cols-1 gap-2">
             {formats.map((format) => (
               <button
                 key={format.id}
-                onClick={() => onExport(format.id)}
-                className="flex items-center gap-4 p-3 border border-[#B5B2AA] rounded-lg hover:bg-[#5B7A3D]/10 hover:border-[#5B7A3D] transition-all text-left"
+                onClick={() => { onExport(format.id); onClose(); }}
+                className="flex items-center gap-4 p-3 border border-[#333] rounded-lg hover:bg-blue-600/10 hover:border-blue-500 transition-all text-left bg-[#222]"
               >
-                <div className="w-10 h-10 bg-white rounded flex items-center justify-center shadow-sm border border-[#B5B2AA]/30">
+                <div className="w-10 h-10 bg-[#1a1a1a] rounded flex items-center justify-center shadow-sm border border-[#333]">
                   {format.icon}
                 </div>
                 <div>
-                  <div className="text-sm font-bold">{format.name}</div>
-                  <div className="text-[10px] text-[#5A5A5A] uppercase tracking-wider">{format.ext}</div>
+                  <div className="text-sm font-bold text-gray-200">{format.name}</div>
+                  <div className="text-xs text-gray-500 uppercase tracking-wider">{format.ext}</div>
                 </div>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="modal-footer">
-          <button onClick={onClose} className="btn-secondary">Cancel</button>
+        <div className="p-4 bg-[#222] border-t border-[#333] flex justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-300 hover:text-white transition-colors">Cancelar</button>
         </div>
       </div>
     </div>
