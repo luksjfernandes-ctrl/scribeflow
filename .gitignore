@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Workspace/IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Vercel
+.vercel/
