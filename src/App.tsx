@@ -40,25 +40,8 @@ import { Scrivenings } from './components/Scrivenings';
 import { CompositionMode } from './components/CompositionMode';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
-import { 
-  auth, 
-  db, 
-  googleProvider, 
-  signInWithPopup, 
-  signOut, 
-  onAuthStateChanged, 
-  doc, 
-  collection, 
-  onSnapshot, 
-  setDoc, 
-  deleteDoc, 
-  updateDoc, 
-  query, 
-  orderBy, 
-  handleFirestoreError, 
-  OperationType,
-  User
-} from './firebase';
+import { supabase } from './lib/supabase';
+import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
@@ -68,6 +51,21 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+
+  // Supabase Auth Sync
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setIsAuthReady(true);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      setIsAuthReady(true);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   // State
   const [project, setProject] = useState<Project>(INITIAL_PROJECT);
@@ -341,51 +339,66 @@ export default function App() {
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  // Firebase Auth Sync
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setIsAuthReady(true);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Firebase Data Sync
+  // Supabase Data Sync
   useEffect(() => {
     if (!isAuthReady) return;
 
     if (user) {
-      // Sync Project
-      const userProjectId = `project-${user.uid}`;
-      const projectRef = doc(db, 'projects', userProjectId);
-      const unsubscribeProject = onSnapshot(projectRef, (snapshot) => {
-        if (snapshot.exists()) {
-          setProject(snapshot.data() as Project);
-        } else {
-          // Initialize project in Firestore if it doesn't exist
-          const initialProject = { ...INITIAL_PROJECT, ownerId: user.uid, id: userProjectId };
-          setDoc(projectRef, initialProject).catch(e => handleFirestoreError(e, OperationType.WRITE, `projects/${userProjectId}`));
-        }
-      }, (e) => handleFirestoreError(e, OperationType.GET, `projects/${userProjectId}`));
+      const userProjectId = `project-${user.id}`;
+      
+      // Fetch and Sync Project
+      const fetchProject = async () => {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .eq('id', userProjectId)
+          .single();
 
-      // Sync Docs
-      const docsRef = collection(db, 'projects', userProjectId, 'docs');
-      const q = query(docsRef, orderBy('order', 'asc'));
-      const unsubscribeDocs = onSnapshot(q, (snapshot) => {
-        const fetchedDocs = snapshot.docs.map(doc => doc.data() as Doc);
-        if (fetchedDocs.length > 0) {
-          setDocs(fetchedDocs);
-        } else {
-          // Initialize docs in Firestore if empty
-          INITIAL_DOCS.forEach(docData => {
-            setDoc(doc(docsRef, docData.id), docData).catch(e => handleFirestoreError(e, OperationType.WRITE, `projects/${userProjectId}/docs/${docData.id}`));
-          });
+        if (error && error.code === 'PGRST116') {
+          // Initialize project if it doesn't exist
+          const initialProject = { ...INITIAL_PROJECT, owner_id: user.id, id: userProjectId };
+          await supabase.from('projects').insert(initialProject);
+          setProject(initialProject);
+        } else if (data) {
+          setProject(data as Project);
         }
-      }, (e) => handleFirestoreError(e, OperationType.GET, `projects/${userProjectId}/docs`));
+      };
+
+      // Fetch and Sync Docs
+      const fetchDocs = async () => {
+        const { data, error } = await supabase
+          .from('docs')
+          .select('*')
+          .eq('project_id', userProjectId)
+          .order('order', { ascending: true });
+
+        if (data && data.length > 0) {
+          setDocs(data as Doc[]);
+        } else {
+          // Initialize docs if empty
+          const docsWithProjectId = INITIAL_DOCS.map(d => ({ ...d, project_id: userProjectId }));
+          await supabase.from('docs').insert(docsWithProjectId);
+          setDocs(INITIAL_DOCS);
+        }
+      };
+
+      fetchProject();
+      fetchDocs();
+
+      // Realtime subscriptions
+      const projectChannel = supabase.channel(`project-${userProjectId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `id=eq.${userProjectId}` }, 
+          payload => setProject(payload.new as Project))
+        .subscribe();
+
+      const docsChannel = supabase.channel(`docs-${userProjectId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${userProjectId}` }, 
+          () => fetchDocs()) // Re-fetch on any change for simplicity/consistency
+        .subscribe();
 
       return () => {
-        unsubscribeProject();
-        unsubscribeDocs();
+        projectChannel.unsubscribe();
+        docsChannel.unsubscribe();
       };
     } else {
       // Fallback to LocalStorage when not logged in
@@ -431,7 +444,12 @@ export default function App() {
   // Auth Handlers
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin
+        }
+      });
     } catch (e) {
       console.error('Login failed:', e);
     }
@@ -439,7 +457,7 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      await supabase.auth.signOut();
       // Clear local state on logout
       setProject(INITIAL_PROJECT);
       setDocs(INITIAL_DOCS);
@@ -480,11 +498,12 @@ export default function App() {
     };
 
     if (user) {
-      const userProjectId = `project-${user.uid}`;
+      const userProjectId = `project-${user.id}`;
       try {
-        await setDoc(doc(db, 'projects', userProjectId, 'docs', newDoc.id), newDoc);
+        const docWithProjectId = { ...newDoc, project_id: userProjectId };
+        await supabase.from('docs').insert(docWithProjectId);
       } catch (e) {
-        handleFirestoreError(e, OperationType.WRITE, `projects/${userProjectId}/docs/${newDoc.id}`);
+        console.error('Error adding doc:', e);
       }
     } else {
       setDocs([...docs, newDoc]);
@@ -508,11 +527,11 @@ export default function App() {
     if (!deleteConfirmId) return;
     
     if (user) {
-      const userProjectId = `project-${user.uid}`;
+      const userProjectId = `project-${user.id}`;
       try {
-        await deleteDoc(doc(db, 'projects', userProjectId, 'docs', deleteConfirmId));
+        await supabase.from('docs').delete().eq('id', deleteConfirmId).eq('project_id', userProjectId);
       } catch (e) {
-        handleFirestoreError(e, OperationType.DELETE, `projects/${userProjectId}/docs/${deleteConfirmId}`);
+        console.error('Error deleting doc:', e);
       }
     } else {
       setDocs(docs.filter(d => d.id !== deleteConfirmId && d.parentId !== deleteConfirmId));
@@ -525,11 +544,11 @@ export default function App() {
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
     const updatedAt = Date.now();
     if (user) {
-      const userProjectId = `project-${user.uid}`;
+      const userProjectId = `project-${user.id}`;
       try {
-        await updateDoc(doc(db, 'projects', userProjectId, 'docs', id), { ...updates, updatedAt });
+        await supabase.from('docs').update({ ...updates, updated_at: updatedAt }).eq('id', id).eq('project_id', userProjectId);
       } catch (e) {
-        handleFirestoreError(e, OperationType.UPDATE, `projects/${userProjectId}/docs/${id}`);
+        console.error('Error updating doc:', e);
       }
     } else {
       setDocs(docs.map(d => d.id === id ? { ...d, ...updates, updatedAt } : d));
@@ -544,14 +563,14 @@ export default function App() {
     const newMetadata = { ...docToUpdate.metadata, ...metadataUpdates };
 
     if (user) {
-      const userProjectId = `project-${user.uid}`;
+      const userProjectId = `project-${user.id}`;
       try {
-        await updateDoc(doc(db, 'projects', userProjectId, 'docs', id), { 
+        await supabase.from('docs').update({ 
           metadata: newMetadata,
-          updatedAt 
-        });
+          updated_at: updatedAt 
+        }).eq('id', id).eq('project_id', userProjectId);
       } catch (e) {
-        handleFirestoreError(e, OperationType.UPDATE, `projects/${userProjectId}/docs/${id}`);
+        console.error('Error updating metadata:', e);
       }
     } else {
       setDocs(docs.map(d => d.id === id ? { 
@@ -754,9 +773,9 @@ export default function App() {
           </button>
 
           {user ? (
-            <button onClick={handleLogout} className="macos-btn" title={`Signed in as ${user.displayName}`}>
-              {user.photoURL ? (
-                <img src={user.photoURL} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
+            <button onClick={handleLogout} className="macos-btn" title={`Signed in as ${user.user_metadata?.full_name || user.email}`}>
+              {user.user_metadata?.avatar_url ? (
+                <img src={user.user_metadata.avatar_url} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
               ) : (
                 <UserIcon size={16} />
               )}
