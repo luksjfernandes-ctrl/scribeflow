@@ -183,7 +183,7 @@ export function Editor({
           style={{ 
             transform: `scale(${zoom / 100})`, 
             transformOrigin: 'top center',
-            width: `${doc.metadata.section_type === 'Heading' ? '100%' : 'auto'}`,
+            width: '100%',
             maxWidth: `${doc.metadata.section_type === 'Heading' ? 'none' : '800px'}`
           }}
         >
@@ -213,7 +213,7 @@ export function Editor({
                 editor?.commands.focus();
               }
             }}
-            className="w-full text-[14px] font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-60 mb-8"
+            className="w-full text-sm font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-60 mb-8 min-h-[1.5em]"
             placeholder="Write a subtitle or epigraph..."
           />
           <EditorContent 

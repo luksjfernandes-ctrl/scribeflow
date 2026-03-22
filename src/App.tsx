@@ -517,9 +517,7 @@ export default function App() {
         console.error('[Supabase] Error fetching docs:', error.message);
       }
 
-      if (data && data.length > 0) {
-        setDocs(data as Doc[]);
-      }
+      setDocs(data || [] as Doc[]);
     };
 
     fetchDocs();
