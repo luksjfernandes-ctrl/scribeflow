@@ -167,13 +167,13 @@ function SortableBinderItem({
         <div
           className="w-4 h-4 mr-0.5 flex items-center justify-center cursor-default"
           onClick={(e) => {
-            if (doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter') {
+            if (doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter' || doc.type === 'trash') {
               e.stopPropagation();
               onToggle(doc.id);
             }
           }}
         >
-          {(doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter') && (
+          {(doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter' || doc.type === 'trash') && (
             <div
               className={cn("disclosure-triangle", is_expanded && "expanded")}
               dangerouslySetInnerHTML={{ __html: is_expanded ? ICONS.disclosureExpanded : ICONS.disclosure }}

@@ -1238,7 +1238,7 @@ export default function App() {
               {selectedDoc ? (
                 <>
                   {viewMode === 'editor' && (
-                    selectedDoc.type === 'folder' || selectedDoc.type === 'research' ? (
+                    (selectedDoc.type === 'folder' || selectedDoc.type === 'research' || selectedDoc.type === 'characters' || selectedDoc.type === 'places' || selectedDoc.type === 'front-matter' || selectedDoc.type === 'trash') ? (
                       <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-on-surface-variant">
                         <Folder size={80} className="mb-6 opacity-10" />
                         <h3 className="text-3xl font-serif italic mb-3 text-primary">{selectedDoc.title}</h3>
