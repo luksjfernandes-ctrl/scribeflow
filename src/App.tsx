@@ -50,6 +50,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
+import { Auth } from './components/Auth';
 
 export default function App() {
   // Auth State
@@ -220,6 +221,19 @@ export default function App() {
     setIsExportOpen(false);
   };
 
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setProjects([]);
+      setActiveProjectId(null);
+      setDocs([]);
+      setSelectedDocId(null);
+    } catch (e) {
+      console.error('Logout error:', e);
+    }
+  };
+
   const handleSave = () => {
     setLastSaved(new Date());
     setShowSaveIndicator(true);
@@ -261,6 +275,14 @@ export default function App() {
         { label: 'Toggle Inspector', shortcut: '⌥⌘I', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
         { divider: true },
         { label: 'Enter Composition Mode', shortcut: '⌥⌘F', onClick: () => setIsCompositionMode(true) },
+      ]
+    },
+    {
+      label: 'ScribeFlow',
+      items: [
+        { label: 'About ScribeFlow', onClick: () => console.log('About') },
+        { divider: true },
+        { label: 'Sair do Sistema', onClick: handleLogout },
       ]
     },
     {
@@ -472,32 +494,10 @@ export default function App() {
     return [selectedDoc];
   }, [docs, selectedDoc]);
 
-  // Auth Handlers
-  const handleLogin = async () => {
-    try {
-      await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin
-        }
-      });
-    } catch (e) {
-      console.error('Login failed:', e);
-    }
-  };
+  // Auth Handlers are now managed by Auth.tsx and top-level session check.
+  // handleLogin is retired in favor of the specialized sanctuary gateway.
 
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      // Clear local state on logout
-      setProjects([]);
-      setActiveProjectId(null);
-      setDocs([]);
-      setSelectedDocId(null);
-    } catch (e) {
-      console.error('Logout failed:', e);
-    }
-  };
+
 
   // Handlers
   const handleAddDoc = async (parent_id: string | null, type: DocumentType) => {
@@ -744,12 +744,37 @@ export default function App() {
     setDocs(updatedDocs);
   };
 
-  if (!isAuthReady || (user && projects.length === 0 && !project)) {
+  // 1. Initial Auth Loading
+  if (!isAuthReady) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#1a1a1a]">
+      <div className="flex h-screen items-center justify-center bg-[#121212]">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin" />
+          <div className="w-12 h-12 border-4 border-blue-600/20 border-t-blue-600 rounded-full animate-spin" />
           <p className="text-gray-400 font-serif italic tracking-wide">Invocando seu santuário...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Redirect to Login if no Session
+  if (!user) {
+    return <Auth />;
+  }
+
+  // 3. Optional: Initial Workspace Loading (if user is authenticated but project metadata is still pending)
+  if (projects.length === 0) {
+    // If user has no projects, the projects sync will eventually create one
+    // or the projects modal can be forced open. 
+    // We show a minimal valid shell rather than a full blocker if possible
+    // but a loader is fine while first project is being created by syncProjects effect
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#121212]">
+        <div className="flex flex-col items-center gap-4 text-center p-8">
+          <div className="w-16 h-16 bg-blue-600/20 rounded-2xl flex items-center justify-center mb-2">
+            <BookOpen className="text-blue-500 w-8 h-8 animate-pulse" />
+          </div>
+          <h2 className="text-white text-lg font-serif italic">Preparando seu primeiro manuscrito...</h2>
+          <p className="text-gray-500 text-sm max-w-xs">Isso deve levar apenas um momento.</p>
         </div>
       </div>
     );
@@ -894,17 +919,13 @@ export default function App() {
             <Info size={16} />
           </button>
 
-          {user ? (
+          {user && (
             <button onClick={handleLogout} className="macos-btn" title={`Signed in as ${user.user_metadata?.full_name || user.email}`}>
               {user.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
               ) : (
                 <UserIcon size={16} />
               )}
-            </button>
-          ) : (
-            <button onClick={handleLogin} className="macos-btn" title="Sign In">
-              <LogIn size={16} />
             </button>
           )}
         </div>
