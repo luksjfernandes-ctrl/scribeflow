@@ -34,6 +34,8 @@ export interface Keyword {
 export interface DocumentMetadata {
   status: string;
   label: string;
+  folder_color?: string;
+  subtitle?: string;
   label_color: string;
   synopsis: string;
   notes: string;

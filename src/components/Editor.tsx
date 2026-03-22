@@ -33,6 +33,7 @@ interface EditorProps {
   zoom: number;
   onZoomChange: (zoom: number) => void;
   externalEditor?: TiptapEditor | null;
+  onSubtitleChange?: (subtitle: string) => void;
 }
 
 const FormatBar = ({ editor }: { editor: TiptapEditor | null }) => {
@@ -137,7 +138,8 @@ export function Editor({
   doc, 
   zoom, 
   onZoomChange,
-  externalEditor
+  externalEditor,
+  onSubtitleChange
 }: EditorProps) {
   const localEditor = useEditor({
     extensions: [
@@ -160,12 +162,13 @@ export function Editor({
 
   const editor = externalEditor || localEditor;
 
-  // Update editor content when external content changes (e.g., selecting a new doc)
+  // Set content only when the document changes to prevent bounce-back from autosave
   React.useEffect(() => {
-    if (editor && content !== editor.getHTML()) {
+    if (editor) {
       editor.commands.setContent(content);
     }
-  }, [content, editor]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc.id, editor]);
 
   const wordCount = editor?.storage.characterCount.words() || 0;
   const charCount = editor?.storage.characterCount.characters() || 0;
@@ -188,8 +191,33 @@ export function Editor({
             type="text" 
             value={title}
             onChange={(e) => onTitleChange(e.target.value)}
-            className="w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-8"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const subtitleInput = document.getElementById('editor-subtitle');
+                if (subtitleInput) {
+                  subtitleInput.focus();
+                } else {
+                  editor?.commands.focus();
+                }
+              }
+            }}
+            className="w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2"
             placeholder="Untitled Document"
+          />
+          <input
+            id="editor-subtitle"
+            type="text"
+            value={doc.metadata.subtitle || ''}
+            onChange={(e) => onSubtitleChange?.(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                editor?.commands.focus();
+              }
+            }}
+            className="w-full text-[14px] font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-40 mb-8"
+            placeholder="Write a subtitle or epigraph..."
           />
           <EditorContent 
             editor={editor} 

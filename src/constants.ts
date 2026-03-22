@@ -34,27 +34,27 @@ export const ICONS = {
   `,
   research: `
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="7" cy="7" r="4.5" stroke="#5A5A5A" stroke-width="1.2"/>
-      <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="#5A5A5A" stroke-width="1.2" stroke-linecap="round"/>
+      <circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.2"/>
+      <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
     </svg>
   `,
   characters: `
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="8" cy="6" r="3" stroke="#5A5A5A" stroke-width="1.2"/>
-      <path d="M4 13c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="#5A5A5A" stroke-width="1.2" stroke-linecap="round"/>
+      <circle cx="8" cy="6" r="3" stroke="currentColor" stroke-width="1.2"/>
+      <path d="M4 13c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
     </svg>
   `,
   places: `
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M8 2c-2.2 0-4 1.8-4 4 0 3 4 8 4 8s4-5 4-8c0-2.2-1.8-4-4-4z" stroke="#5A5A5A" stroke-width="1.2"/>
-      <circle cx="8" cy="6" r="1.2" fill="#5A5A5A"/>
+      <path d="M8 2c-2.2 0-4 1.8-4 4 0 3 4 8 4 8s4-5 4-8c0-2.2-1.8-4-4-4z" stroke="currentColor" stroke-width="1.2"/>
+      <circle cx="8" cy="6" r="1.2" fill="currentColor"/>
     </svg>
   `,
   trash: `
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M3 4h8l-.5 8.5c0 .55-.45 1-1 1H4.5c-.55 0-1-.45-1-1L3 4z" stroke="#5A5A5A" stroke-width="1"/>
-      <rect x="2" y="2.5" width="10" height="1.5" rx="0.5" stroke="#5A5A5A" stroke-width="1"/>
-      <rect x="5" y="1" width="4" height="2" rx="0.5" stroke="#5A5A5A" stroke-width="1"/>
+      <path d="M3 4h8l-.5 8.5c0 .55-.45 1-1 1H4.5c-.55 0-1-.45-1-1L3 4z" stroke="currentColor" stroke-width="1"/>
+      <rect x="2" y="2.5" width="10" height="1.5" rx="0.5" stroke="currentColor" stroke-width="1"/>
+      <rect x="5" y="1" width="4" height="2" rx="0.5" stroke="currentColor" stroke-width="1"/>
     </svg>
   `,
   disclosure: `

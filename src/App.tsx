@@ -61,6 +61,28 @@ import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
 import { Auth } from './components/Auth';
 
+const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
+  const manuscriptId = crypto.randomUUID();
+  const charactersId = crypto.randomUUID();
+  const placesId = crypto.randomUUID();
+  const researchId = crypto.randomUUID();
+  const trashId = crypto.randomUUID();
+
+  const defaultMeta = { section_type: 'Heading', is_include_in_compile: false, created_at: Date.now(), updated_at: Date.now(), status: 'To Do', label: 'none', label_color: 'transparent', synopsis: '', notes: '', target_word_count: 0, keywords: [], custom_metadata: {}, snapshots: [], comments: [], bookmarks: [] };
+
+  return [
+    { id: manuscriptId, project_id: projectId, title: 'Manuscript', content: '', type: 'folder', parent_id: null, order: 0, folder_role: 'manuscript', metadata: { ...defaultMeta, is_include_in_compile: true } as DocumentMetadata },
+    { id: charactersId, project_id: projectId, title: 'Characters', content: '', type: 'folder', parent_id: null, order: 1, folder_role: 'characters', metadata: { ...defaultMeta, folder_color: '#9B59B6' } as DocumentMetadata },
+    { id: placesId, project_id: projectId, title: 'Places', content: '', type: 'folder', parent_id: null, order: 2, folder_role: 'places', metadata: { ...defaultMeta, folder_color: '#27AE60' } as DocumentMetadata },
+    { id: researchId, project_id: projectId, title: 'Research', content: '', type: 'folder', parent_id: null, order: 3, folder_role: 'research', metadata: { ...defaultMeta, folder_color: '#3498DB' } as DocumentMetadata },
+    { id: trashId, project_id: projectId, title: 'Trash', content: '', type: 'trash', parent_id: null, order: 4, folder_role: 'trash', metadata: { ...defaultMeta, folder_color: '#95A5A6' } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Chapter 1', content: '', type: 'text', parent_id: manuscriptId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene', is_include_in_compile: true } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Character Sheet', content: '', type: 'characters', parent_id: charactersId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Location Sheet', content: '', type: 'places', parent_id: placesId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Notes', content: '', type: 'research', parent_id: researchId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
+  ];
+};
+
 export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
@@ -97,6 +119,19 @@ export default function App() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
+  const saveDocTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const pendingUpdatesRef = React.useRef<Record<string, Partial<Doc> | any>>({});
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'pending' | 'error'>('saved');
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (saveDocTimerRef.current) {
+        clearTimeout(saveDocTimerRef.current);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
   
   // Panel Widths
   const [binderWidth, setBinderWidth] = useState(240);
@@ -412,7 +447,15 @@ export default function App() {
         if (data && data.length > 0) {
           setProjects(data as Project[]);
           if (!activeProjectId) {
-            setActiveProjectId(data[0].id);
+            const lastProjectId = localStorage.getItem('scribeflow-last-project');
+            const matchProject = data.find(p => p.id === lastProjectId);
+            
+            if (matchProject) {
+              setActiveProjectId(matchProject.id);
+            } else {
+              setActiveProjectId(data[0].id);
+              setIsProjectsModalOpen(true);
+            }
           }
         } else if (!error) {
           console.log('[Supabase] No projects found, creating initial via RPC...');
@@ -433,7 +476,8 @@ export default function App() {
           };
           
           await supabase.from('projects').insert(initialProject);
-          await supabase.rpc('create_project_structure', { p_project_id: userProjectId });
+          const initialDocs = generateInitialDocs(userProjectId);
+          await supabase.from('docs').insert(initialDocs);
           
           setProjects([initialProject as Project]);
           setActiveProjectId(userProjectId);
@@ -605,42 +649,67 @@ export default function App() {
     }
   };
 
-  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-
-  const handleDeleteDoc = (id: string) => {
-    const targetDoc = docs.find(d => d.id === id);
-    if (targetDoc && targetDoc.folder_role) return; // Cannot delete structural folders
-    setDeleteConfirmId(id);
+  const getAllChildrenIds = (folderId: string, currentDocs: Doc[]): string[] => {
+    const childrenIds = currentDocs.filter(d => d.parent_id === folderId).map(d => d.id);
+    let allIds = [...childrenIds];
+    childrenIds.forEach(childId => {
+      allIds = [...allIds, ...getAllChildrenIds(childId, currentDocs)];
+    });
+    return allIds;
   };
 
-  const confirmDelete = async () => {
-    if (!deleteConfirmId) return;
+  const handleDeleteDoc = async (id: string) => {
+    const targetDoc = docs.find(d => d.id === id);
+    if (!targetDoc || targetDoc.folder_role) return; // Cannot delete structural folders
     
-    if (user && activeProjectId && trashFolder) {
-      try {
-        await supabase.from('docs')
-          .update({ 
-            parent_id: trashFolder.id, 
-            metadata: { 
-              ...docs.find(d => d.id === deleteConfirmId)?.metadata, 
-              is_include_in_compile: false 
-            } 
-          })
-          .eq('id', deleteConfirmId)
-          .eq('project_id', activeProjectId);
-      } catch (e) {
-        console.error('Error moving doc to trash:', e);
-      }
-    } else if (trashFolder) {
-      setDocs(docs.map(d => 
-        d.id === deleteConfirmId 
-          ? { ...d, parent_id: trashFolder.id, metadata: { ...d.metadata, is_include_in_compile: false } } 
-          : d
-      ));
+    let isInTrash = targetDoc.parent_id === trashFolder?.id;
+    let parent = docs.find(d => d.id === targetDoc.parent_id);
+    while (!isInTrash && parent) {
+      if (parent.id === trashFolder?.id) isInTrash = true;
+      parent = docs.find(d => d.id === parent?.parent_id);
     }
 
-    if (selectedDocId === deleteConfirmId) setSelectedDocId(null);
-    setDeleteConfirmId(null);
+    if (isInTrash) {
+      if (window.confirm('Tem certeza de que deseja excluir permanentemente este item? Esta ação não pode ser desfeita.')) {
+        const idsToDelete = [id, ...getAllChildrenIds(id, docs)];
+        if (user && activeProjectId) {
+          try {
+            await supabase.from('docs').delete().in('id', idsToDelete);
+          } catch(e) { console.error('Delete error', e); }
+        }
+        setDocs(curr => curr.filter(d => !idsToDelete.includes(d.id)));
+        if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
+      }
+    } else if (trashFolder) {
+      // Move to trash
+      handleUpdateDoc(id, { parent_id: trashFolder.id });
+      if (targetDoc.metadata.is_include_in_compile) {
+        handleUpdateMetadata(id, { is_include_in_compile: false });
+      }
+      if (selectedDocId === id) setSelectedDocId(null);
+    }
+  };
+
+  const handleEmptyTrash = async () => {
+    if (!trashFolder) return;
+    const itemsInTrash = docs.filter(d => d.parent_id === trashFolder.id);
+    if (itemsInTrash.length === 0) return;
+    
+    if (window.confirm('Tem certeza de que deseja ESVAZIAR A LIXEIRA? Esta ação não pode ser desfeita e deletará todos os documentos dentro da lixeira.')) {
+      let idsToDelete: string[] = [];
+      itemsInTrash.forEach(item => {
+        idsToDelete.push(item.id);
+        idsToDelete = [...idsToDelete, ...getAllChildrenIds(item.id, docs)];
+      });
+      
+      if (user && activeProjectId && idsToDelete.length > 0) {
+        try {
+          await supabase.from('docs').delete().in('id', idsToDelete);
+        } catch(e) { console.error('Empty trash error', e); }
+      }
+      setDocs(curr => curr.filter(d => !idsToDelete.includes(d.id)));
+      if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
+    }
   };
 
   const handleCreateProject = async (name: string) => {
@@ -678,10 +747,12 @@ export default function App() {
       const createdProject = insertedData[0] as Project;
       setProjects([createdProject, ...projects]);
       setActiveProjectId(newProjectId);
+      localStorage.setItem('scribeflow-last-project', newProjectId);
       try {
-        await supabase.rpc('create_project_structure', { p_project_id: newProjectId });
+        const initialDocs = generateInitialDocs(newProjectId);
+        await supabase.from('docs').insert(initialDocs);
       } catch (e) {
-        console.error('Failed to initialize project docs via RPC', e);
+        console.error('Failed to initialize project docs', e);
       }
     } else {
       console.error('[Supabase] Error creating project:', error);
@@ -705,7 +776,35 @@ export default function App() {
   const handleSwitchProject = (id: string) => {
     setActiveProjectId(id);
     setSelectedDocId(null); // Reset selection
+    localStorage.setItem('scribeflow-last-project', id);
   };
+
+  const debouncedSaveDoc = React.useCallback((id: string, updates: any) => {
+    setSaveStatus('pending');
+    
+    pendingUpdatesRef.current[id] = {
+      ...(pendingUpdatesRef.current[id] || {}),
+      ...updates
+    };
+
+    if (saveDocTimerRef.current) clearTimeout(saveDocTimerRef.current);
+    saveDocTimerRef.current = setTimeout(async () => {
+      const docsToSave = { ...pendingUpdatesRef.current };
+      pendingUpdatesRef.current = {};
+      
+      let allSuccess = true;
+      for (const [docId, mergedUpdates] of Object.entries(docsToSave)) {
+         try {
+           await supabase.from('docs').update({ ...mergedUpdates, updated_at: Date.now() }).eq('id', docId).eq('project_id', activeProjectId);
+         } catch (e) {
+           allSuccess = false;
+           console.error("Debounced save error:", e);
+         }
+      }
+      setSaveStatus(allSuccess ? 'saved' : 'error');
+      saveDocTimerRef.current = null;
+    }, 1500);
+  }, [activeProjectId]);
 
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
     // Validate Updates
@@ -717,14 +816,10 @@ export default function App() {
     }
 
     const updated_at = Date.now();
+    setDocs(curr => curr.map(d => d.id === id ? { ...d, ...updates, updated_at } : d));
+
     if (user && activeProjectId) {
-      try {
-        await supabase.from('docs').update({ ...updates, updated_at: updated_at }).eq('id', id).eq('project_id', activeProjectId);
-      } catch (e) {
-        console.error('Error updating doc:', e);
-      }
-    } else {
-      setDocs(docs.map(d => d.id === id ? { ...d, ...updates, updated_at } : d));
+      debouncedSaveDoc(id, updates);
     }
   };
 
@@ -777,30 +872,21 @@ export default function App() {
 
   const handleUpdateMetadata = async (id: string, metadata_updates: Partial<DocumentMetadata>) => {
     const updated_at = Date.now();
-    const docToUpdate = docs.find(d => d.id === id);
-    if (!docToUpdate) return;
+    let newMetadata: DocumentMetadata | null = null;
+    setDocs(curr => {
+      const updatedDocs = curr.map(d => {
+        if (d.id === id) {
+          const m = { ...d.metadata, ...metadata_updates, updated_at };
+          newMetadata = m;
+          return { ...d, metadata: m, updated_at };
+        }
+        return d;
+      });
+      return updatedDocs;
+    });
 
-    const newMetadata: DocumentMetadata = {
-      ...docToUpdate.metadata,
-      ...metadata_updates,
-      updated_at // Always update this
-    };
-
-    if (user && activeProjectId) {
-      try {
-        await supabase.from('docs').update({
-          metadata: newMetadata,
-          updated_at: updated_at
-        }).eq('id', id).eq('project_id', activeProjectId);
-      } catch (e) {
-        console.error('Error updating metadata:', e);
-      }
-    } else {
-      setDocs(docs.map(d => d.id === id ? {
-        ...d,
-        metadata: newMetadata,
-        updated_at
-      } : d));
+    if (user && activeProjectId && newMetadata) {
+      debouncedSaveDoc(id, { metadata: newMetadata });
     }
   };
 
@@ -1239,51 +1325,48 @@ export default function App() {
             Rename
             <span className="context-menu-shortcut">↩</span>
           </div>
-          <div className="context-menu-item" onClick={() => handleDeleteDoc(contextMenu.id)}>
-            <div className="context-menu-icon"><Trash2 size={14} /></div>
-            Move to Trash
-            <span className="context-menu-shortcut">⌘⌫</span>
-          </div>
+          {contextMenu && contextMenu.id === trashFolder?.id ? (
+            <div className="context-menu-item" onClick={() => { handleEmptyTrash(); setContextMenu(null); }} style={{ color: '#E74C3C' }}>
+              <div className="context-menu-icon"><Trash2 size={14} /></div>
+              Esvaziar Lixeira
+            </div>
+          ) : contextMenu.id !== trashFolder?.id && (
+            <div className="context-menu-item" onClick={() => { handleDeleteDoc(contextMenu.id); setContextMenu(null); }}>
+              <div className="context-menu-icon"><Trash2 size={14} /></div>
+              {docs.find(d => d.id === contextMenu.id)?.parent_id === trashFolder?.id ? 'Deletar Permanentemente' : 'Move to Trash'}
+              <span className="context-menu-shortcut">⌘⌫</span>
+            </div>
+          )}
           <div className="context-menu-separator" />
           <div className="context-menu-item" onClick={() => { handleShare(); setContextMenu(null); }}>
             <div className="context-menu-icon"><Share size={14} /></div>
             Compartilhar Link
           </div>
+          {contextMenu && docs.find(d => d.id === contextMenu.id)?.type === 'folder' && (
+            <>
+              <div className="context-menu-separator" />
+              <div className="px-3 py-1 text-xs text-gray-500 font-bold tracking-wide">Alterar Cor</div>
+              <div className="flex gap-2 px-3 py-2 flex-wrap w-40">
+                {['#E74C3C', '#E67E22', '#F1C40F', '#27AE60', '#3498DB', '#9B59B6', '#95A5A6', '#1ABC9C', 'transparent'].map(color => (
+                  <div
+                    key={color}
+                    onClick={() => {
+                        handleUpdateMetadata(contextMenu.id, { folder_color: color === 'transparent' ? undefined : color });
+                        setContextMenu(null);
+                    }}
+                    className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform shadow-sm"
+                    style={{ 
+                      backgroundColor: color === 'transparent' ? '#efefef' : color,
+                      border: color === 'transparent' ? '1px dashed #999' : 'none'
+                    }}
+                    title={color === 'transparent' ? 'Padrão' : undefined}
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
-
-      {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {deleteConfirmId && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-on-surface/20 backdrop-blur-sm">
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-[6px] shadow-xl p-8 max-w-sm w-full border border-[#C5C2BA]"
-            >
-              <h3 className="text-xl font-serif font-bold text-primary mb-3">Confirm Delete</h3>
-              <p className="text-sm text-on-surface-variant mb-8 leading-relaxed">
-                Are you sure you want to delete this document? This action cannot be undone and will remove it from your sanctuary.
-              </p>
-              <div className="flex justify-end gap-4">
-                <button 
-                  onClick={() => setDeleteConfirmId(null)}
-                  className="px-5 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface-container-high rounded-sm transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={confirmDelete}
-                  className="px-5 py-2 text-xs font-bold text-white bg-red-800 hover:bg-red-900 rounded-[6px] transition-colors shadow-sm"
-                >
-                  Delete Document
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Global Footer */}
       <footer className="h-[22px] bg-gradient-to-b from-[#E0DDD5] to-[#D5D2CA] border-t border-[#B5B2AA] flex items-center justify-between px-3 text-[10px] font-mono tracking-wider text-[#6A6760] uppercase">
@@ -1296,8 +1379,14 @@ export default function App() {
           <span className="opacity-70">{selectedDoc ? `SELECTED: ${selectedDoc.title}` : 'NO SELECTION'}</span>
           <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3" />
           <div className="flex items-center gap-2">
-            <div className={cn("w-[7px] h-[7px] rounded-full", user ? "bg-[#5B7A3D] shadow-[0_0_4px_rgba(91,122,61,0.4)]" : "bg-[#755a24]")} />
-            <span className="font-bold">{user ? 'CLOUD SYNC ACTIVE' : 'LOCAL STORAGE ACTIVE'}</span>
+            <div className={cn(
+              "w-[7px] h-[7px] rounded-full shadow-[0_0_4px_currentColor]", 
+              !user ? "bg-[#755a24] text-[#755a24]" : 
+              saveStatus === 'pending' ? "bg-amber-400 text-amber-400 animate-pulse" : 
+              saveStatus === 'error' ? "bg-red-500 text-red-500" : 
+              "bg-[#5B7A3D] text-[#5B7A3D]"
+            )} />
+            <span className="font-bold">{!user ? 'LOCAL STORAGE ACTIVE' : saveStatus === 'pending' ? 'SAVING...' : saveStatus === 'error' ? 'SYNC ERROR' : 'CLOUD SYNC ACTIVE'}</span>
           </div>
         </div>
       </footer>
