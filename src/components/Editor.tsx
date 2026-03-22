@@ -177,18 +177,16 @@ export function Editor({
             className="w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2 resize-none overflow-hidden"
             placeholder="Untitled Document"
           />
-          <input
+          <textarea
             id="editor-subtitle"
-            type="text"
+            rows={1}
             value={doc.metadata.subtitle || ''}
-            onChange={(e) => onSubtitleChange?.(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                editor?.commands.focus();
-              }
+            onChange={(e) => {
+              onSubtitleChange?.(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = e.target.scrollHeight + 'px';
             }}
-            className="w-full text-sm font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-60 mb-8 min-h-[1.5em]"
+            className="w-full text-sm font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-60 mb-8 min-h-[1.5em] resize-none overflow-hidden"
             placeholder="Write a subtitle or epigraph..."
           />
           <EditorContent 

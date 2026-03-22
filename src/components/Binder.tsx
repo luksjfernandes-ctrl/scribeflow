@@ -258,32 +258,26 @@ export const Binder: React.FC<BinderProps> = ({
     })
   );
 
-  const handleDragEnd = (event: any) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over) return;
+    if (!over || active.id === over.id) return;
 
-    const docId = active.id;
-    const overId = over.id;
+    const draggedDoc = docs.find(d => d.id === active.id);
+    const targetDoc = docs.find(d => d.id === over.id);
+    if (!draggedDoc || !targetDoc) return;
 
-    if (docId === overId) return;
+    if (draggedDoc.metadata.folder_role) return;
 
-    const targetDoc = docs.find(d => d.id === overId);
-    const movingDoc = docs.find(d => d.id === docId);
+    const isTargetFolder = targetDoc.type === 'folder' || 
+      targetDoc.metadata.folder_role != null;
 
-    if (!targetDoc || !movingDoc) return;
-
-    let newParentId: string | null = null;
-
-    if (targetDoc.type === 'folder') {
-      newParentId = targetDoc.id;
+    if (isTargetFolder) {
+      onMoveDoc(active.id as string, targetDoc.id);
+    } else if (draggedDoc.parent_id === targetDoc.parent_id) {
+      onReorderDocs(active.id as string, over.id as string);
     } else {
-      newParentId = targetDoc.parent_id;
+      onMoveDoc(active.id as string, targetDoc.parent_id || '');
     }
-
-    // Não permitir mover para dentro de si mesmo ou se for pasta estrutural
-    if (newParentId === docId || movingDoc.metadata.folder_role) return;
-
-    onMoveDoc(docId, newParentId);
   };
 
   const renderChildren = (parent_id: string | null, depth: number = 0) => {
