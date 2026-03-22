@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import { Editor as TiptapEditor, EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
@@ -32,9 +32,10 @@ interface EditorProps {
   doc: Doc;
   zoom: number;
   onZoomChange: (zoom: number) => void;
+  externalEditor?: TiptapEditor | null;
 }
 
-const FormatBar = ({ editor }: { editor: any }) => {
+const FormatBar = ({ editor }: { editor: TiptapEditor | null }) => {
   if (!editor) return null;
 
   return (
@@ -128,8 +129,17 @@ const FormatBar = ({ editor }: { editor: any }) => {
   );
 };
 
-export function Editor({ content, onChange, title, onTitleChange, doc, zoom, onZoomChange }: EditorProps) {
-  const editor = useEditor({
+export function Editor({ 
+  content, 
+  onChange, 
+  title, 
+  onTitleChange, 
+  doc, 
+  zoom, 
+  onZoomChange,
+  externalEditor
+}: EditorProps) {
+  const localEditor = useEditor({
     extensions: [
       StarterKit,
       Underline,
@@ -147,6 +157,8 @@ export function Editor({ content, onChange, title, onTitleChange, doc, zoom, onZ
       onChange(editor.getHTML());
     },
   });
+
+  const editor = externalEditor || localEditor;
 
   // Update editor content when external content changes (e.g., selecting a new doc)
   React.useEffect(() => {

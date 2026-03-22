@@ -33,8 +33,9 @@ export function Auth() {
         if (error) throw error;
         setMessage('Verifique seu e-mail para confirmar o cadastro!');
       }
-    } catch (err: any) {
-      setError(err.message || 'Erro ao processar autenticação');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao processar autenticação';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

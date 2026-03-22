@@ -6,6 +6,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { z } from 'zod';
+import { useEditor } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Underline from '@tiptap/extension-underline';
+import Highlight from '@tiptap/extension-highlight';
+import TextAlign from '@tiptap/extension-text-align';
+import Placeholder from '@tiptap/extension-placeholder';
+import CharacterCount from '@tiptap/extension-character-count';
+import { ParagraphFocus } from './extensions/paragraphFocus';
 import ProjectsModal from './components/ProjectsModal';
 import { 
   Layout, 
@@ -83,6 +92,7 @@ export default function App() {
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isBinderOpen, setIsBinderOpen] = useState(true);
   const [isCompositionMode, setIsCompositionMode] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
@@ -172,7 +182,7 @@ export default function App() {
         doc.save(`${safeTitle}_export.pdf`);
       }
       else if (format === 'docx') {
-        const children: any[] = [];
+        const children: Paragraph[] = [];
         
         // Title page
         children.push(new Paragraph({ text: project?.name || 'Manuscript', heading: HeadingLevel.TITLE, spacing: { after: 400 } }));
@@ -221,6 +231,11 @@ export default function App() {
     setIsExportOpen(false);
   };
 
+  const handleShare = () => {
+    navigator.clipboard.writeText(window.location.href);
+    alert('URL do projeto copiada para a área de transferência!');
+  };
+
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -256,11 +271,8 @@ export default function App() {
     {
       label: 'Edit',
       items: [
-        { label: 'Cut', shortcut: '⌘X', onClick: () => document.execCommand('cut') },
-        { label: 'Copy', shortcut: '⌘C', onClick: () => document.execCommand('copy') },
-        { label: 'Paste', shortcut: '⌘V', onClick: () => document.execCommand('paste') },
-        { divider: true },
-        { label: 'Select All', shortcut: '⌘A', onClick: () => document.execCommand('selectAll') },
+        { label: 'Undo', shortcut: '⌘Z', onClick: () => console.log('Undo (handled by TipTap)') },
+        { label: 'Redo', shortcut: '⇧⌘Z', onClick: () => console.log('Redo (handled by TipTap)') },
       ]
     },
     {
@@ -280,7 +292,7 @@ export default function App() {
     {
       label: 'ScribeFlow',
       items: [
-        { label: 'About ScribeFlow', onClick: () => console.log('About') },
+        { label: 'Sobre o ScribeFlow...', onClick: () => setIsAboutOpen(true) },
         { divider: true },
         { label: 'Sair do Sistema', onClick: handleLogout },
       ]
@@ -499,6 +511,28 @@ export default function App() {
 
 
 
+  /**
+   * Zod Schemas for Data Validation (Security Hardening)
+   */
+  const projectSchema = z.object({
+    title: z.string().min(1, "O título é obrigatório").max(200, "Título muito longo"),
+  });
+
+  const documentSchema = z.object({
+    id: z.string().uuid(),
+    title: z.string().min(1).max(200),
+    type: z.enum(['text', 'folder', 'trash', 'characters', 'places', 'research'] as const),
+    parent_id: z.string().uuid().nullable(),
+    folder_role: z.string().nullable().optional(),
+  });
+
+  const updateDocumentSchema = z.object({
+    title: z.string().min(1).max(200).optional(),
+    content: z.string().optional(),
+    parent_id: z.string().uuid().nullable().optional(),
+    metadata: z.any().optional(), // Could be deeper but keeping partial context
+  }).partial();
+
   // Handlers
   const handleAddDoc = async (parent_id: string | null, type: DocumentType) => {
     let final_parent_id = parent_id;
@@ -537,6 +571,20 @@ export default function App() {
         bookmarks: [],
       },
     };
+
+    // Validate using Zod
+    try {
+      documentSchema.parse({
+        id: newDoc.id,
+        title: newDoc.title,
+        type: newDoc.type,
+        parent_id: newDoc.parent_id,
+        folder_role: newDoc.folder_role
+      });
+    } catch (err) {
+      console.error('Zod Validation Error (Add Doc):', err);
+      return;
+    }
 
     if (user && activeProjectId) {
       try {
@@ -596,10 +644,19 @@ export default function App() {
   };
 
   const handleCreateProject = async (name: string) => {
-    if (!user) {
-      alert("⚠️ Atenção: Você precisa fazer o Login no sistema para poder criar novos projetos. Múltiplos projetos requerem sincronização na nuvem.");
+    if (!user) return;
+    
+    // Validate Project Title
+    try {
+      projectSchema.parse({ title: name });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof z.ZodError 
+        ? err.issues[0]?.message 
+        : "Erro de validação";
+      alert(errorMessage);
       return;
     }
+
     const newProjectId = crypto.randomUUID();
     
     const { data: insertedData, error } = await supabase.from('projects').insert({
@@ -651,6 +708,14 @@ export default function App() {
   };
 
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
+    // Validate Updates
+    try {
+      updateDocumentSchema.parse(updates);
+    } catch (err) {
+      console.error('Zod Validation Error (Update Doc):', err);
+      return;
+    }
+
     const updated_at = Date.now();
     if (user && activeProjectId) {
       try {
@@ -662,6 +727,53 @@ export default function App() {
       setDocs(docs.map(d => d.id === id ? { ...d, ...updates, updated_at } : d));
     }
   };
+
+  // Global Editor instance for shared focus mode (Hardening/Refactor)
+  const globalEditor = useEditor({
+    extensions: [
+      StarterKit,
+      Underline,
+      Highlight,
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+      }),
+      Placeholder.configure({
+        placeholder: 'Start writing...',
+      }),
+      CharacterCount,
+      ParagraphFocus,
+    ],
+    onUpdate: ({ editor }) => {
+      if (selectedDoc) {
+        handleUpdateDoc(selectedDoc.id, { content: editor.getHTML() });
+      }
+    },
+  });
+
+  // Sync Global Editor with Selected Doc
+  useEffect(() => {
+    if (globalEditor && selectedDoc && selectedDoc.type !== 'folder') {
+      const currentContent = globalEditor.getHTML();
+      if (selectedDoc.content !== currentContent) {
+        globalEditor.commands.setContent(selectedDoc.content);
+      }
+    }
+  }, [selectedDoc?.id, globalEditor]);
+
+  // Global Shortcuts (Composition Mode, etc.)
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      // F11 or Cmd+Shift+F
+      if (e.key === 'F11' || (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey))) {
+        if (selectedDoc && selectedDoc.type === 'text') {
+          e.preventDefault();
+          setIsCompositionMode(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, [selectedDoc]);
 
   const handleUpdateMetadata = async (id: string, metadata_updates: Partial<DocumentMetadata>) => {
     const updated_at = Date.now();
@@ -987,6 +1099,7 @@ export default function App() {
                         doc={selectedDoc}
                         zoom={zoom}
                         onZoomChange={setZoom}
+                        externalEditor={globalEditor}
                       />
                     )
                   )}
@@ -1060,9 +1173,8 @@ export default function App() {
         {isCompositionMode && selectedDoc && selectedDoc.type === 'text' && (
           <CompositionMode 
             key="compose-mode"
-            content={selectedDoc.content}
+            editor={globalEditor}
             title={selectedDoc.title}
-            onChange={(content) => handleUpdateDoc(selectedDoc.id, { content })}
             onExit={() => setIsCompositionMode(false)}
           />
         )}
@@ -1133,9 +1245,9 @@ export default function App() {
             <span className="context-menu-shortcut">⌘⌫</span>
           </div>
           <div className="context-menu-separator" />
-          <div className="context-menu-item">
+          <div className="context-menu-item" onClick={() => { handleShare(); setContextMenu(null); }}>
             <div className="context-menu-icon"><Share size={14} /></div>
-            Share...
+            Compartilhar Link
           </div>
         </div>
       )}
@@ -1189,6 +1301,50 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* About Modal */}
+      <AnimatePresence>
+        {isAboutOpen && (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setIsAboutOpen(false)}>
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-[#1A1A1A] border border-[#333] rounded-2xl shadow-2xl p-10 max-w-md w-full relative overflow-hidden text-center"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-600 to-emerald-600" />
+              <div className="w-20 h-20 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-600/20">
+                <PenTool className="text-white w-10 h-10" />
+              </div>
+              <h2 className="text-3xl font-bold text-white tracking-tight mb-2">ScribeFlow</h2>
+              <p className="text-xs font-mono text-blue-400 uppercase tracking-widest mb-6">Versão 2.1.0-AoR</p>
+              
+              <div className="space-y-4 text-gray-400 text-sm font-serif italic leading-relaxed">
+                <p>"O que criamos é o que nos tornamos."</p>
+                <p>O ScribeFlow é o seu santuário transcendental para a criação e organização intelectual.</p>
+              </div>
+
+              <div className="mt-10 pt-8 border-t border-[#333] flex flex-col gap-3">
+                <a 
+                  href="https://github.com/luksjfernandes-ctrl/scribeflow" 
+                  target="_blank" 
+                  className="bg-[#333] hover:bg-[#444] text-white py-3 rounded-xl transition-all flex items-center justify-center gap-2 font-bold text-sm"
+                >
+                  Ver no GitHub
+                </a>
+                <button 
+                  onClick={() => setIsAboutOpen(false)}
+                  className="text-gray-500 hover:text-white py-2 transition-colors text-xs font-medium"
+                >
+                  Fechar Santuário
+                </button>
+              </div>
+              <p className="mt-8 text-[9px] uppercase tracking-widest text-gray-600 font-bold">Built with Supabase + React</p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

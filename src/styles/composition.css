@@ -1,0 +1,63 @@
+/* Composition Mode Styles - Sanctuary Aesthetic */
+
+.composition-overlay {
+  background-color: var(--comp-bg) !important;
+  color: var(--comp-text) !important;
+}
+
+.composition-tiptap .ProseMirror {
+    outline: none !important;
+    background: transparent !important;
+}
+
+/* Paragraph Dimming Enhancement */
+.composition-tiptap .ProseMirror > p {
+    opacity: 0.25;
+    transition: opacity 0.5s ease;
+    margin-bottom: 1.5em;
+    color: var(--comp-text);
+}
+
+.composition-tiptap .ProseMirror > p.is-active-paragraph {
+    opacity: 1;
+}
+
+/* Caret/Cursor Style */
+.composition-tiptap .ProseMirror {
+    caret-color: var(--comp-accent);
+}
+
+/* Scrivener-style scrollbar for the dark mode */
+.scrivener-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrivener-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrivener-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(184, 160, 74, 0.1);
+  border-radius: 10px;
+}
+
+.scrivener-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(184, 160, 74, 0.3);
+}
+
+/* Focus Mode selection color */
+.composition-tiptap .ProseMirror ::selection {
+    background: rgba(184, 160, 74, 0.2);
+}
+
+/* Typography variants */
+.composition-tiptap h1, 
+.composition-tiptap h2, 
+.composition-tiptap h3 {
+    color: var(--comp-accent);
+    opacity: 0.8;
+    margin-top: 2em;
+    margin-bottom: 1em;
+    font-weight: normal;
+    font-style: italic;
+}
