@@ -150,6 +150,21 @@ function SortableBinderItem({
         onContextMenu={(e) => onContextMenu(e, doc.id)}
       >
         <div
+          className="w-4 h-4 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity shrink-0 mr-1"
+          {...attributes}
+          {...listeners}
+        >
+          <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" className="text-gray-400">
+            <circle cx="2" cy="2" r="1.2"/>
+            <circle cx="6" cy="2" r="1.2"/>
+            <circle cx="2" cy="6" r="1.2"/>
+            <circle cx="6" cy="6" r="1.2"/>
+            <circle cx="2" cy="10" r="1.2"/>
+            <circle cx="6" cy="10" r="1.2"/>
+          </svg>
+        </div>
+
+        <div
           className="w-4 h-4 mr-0.5 flex items-center justify-center cursor-default"
           onClick={(e) => {
             if (doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter') {
@@ -384,7 +399,7 @@ export const Binder: React.FC<BinderProps> = ({
       <div className="flex-1 overflow-y-auto py-1 scrivener-scrollbar">
         <DndContext 
           sensors={sensors}
-          collisionDetection={pointerWithin}
+          collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
           {renderChildren(null)}
