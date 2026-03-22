@@ -679,12 +679,33 @@ export default function App() {
         if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
       }
     } else if (trashFolder) {
-      // Move to trash
-      handleUpdateDoc(id, { parent_id: trashFolder.id });
-      if (targetDoc.metadata.is_include_in_compile) {
-        handleUpdateMetadata(id, { is_include_in_compile: false });
+      // Move to trash — chamada direta, sem debounce
+      const updatedMetadata = targetDoc.metadata.is_include_in_compile 
+        ? { ...targetDoc.metadata, is_include_in_compile: false }
+        : targetDoc.metadata;
+      
+      if (user && activeProjectId) {
+        await supabase.from('docs').update({ 
+          parent_id: trashFolder.id, 
+          metadata: updatedMetadata 
+        }).eq('id', id);
+
+        // Se for pasta, mover filhos também
+        if (targetDoc.type === 'folder') {
+          const childIds = getAllChildrenIds(id, docs);
+          if (childIds.length > 0) {
+            await supabase.from('docs').update({ parent_id: trashFolder.id }).in('id', childIds);
+          }
+        }
       }
-      if (selectedDocId === id) setSelectedDocId(null);
+      
+      const childIds = targetDoc.type === 'folder' ? getAllChildrenIds(id, docs) : [];
+      setDocs(curr => curr.map(d => 
+        d.id === id || childIds.includes(d.id)
+        ? { ...d, parent_id: trashFolder.id, metadata: d.id === id ? updatedMetadata : d.metadata } 
+        : d
+      ));
+      if (selectedDocId === id || childIds.includes(selectedDocId || '')) setSelectedDocId(null);
     }
   };
 
@@ -778,6 +799,28 @@ export default function App() {
     setActiveProjectId(id);
     setSelectedDocId(null); // Reset selection
     localStorage.setItem('scribeflow-last-project', id);
+  };
+
+  const handleMoveDoc = async (docId: string, newParentId: string) => {
+    const doc = docs.find(d => d.id === docId);
+    if (!doc) return;
+    
+    // Prevenir mover pasta para dentro de si mesma ou de seus filhos
+    if (doc.type === 'folder') {
+      const childIds = getAllChildrenIds(docId, docs);
+      if (childIds.includes(newParentId) || docId === newParentId) return;
+    }
+
+    const newOrder = docs.filter(d => d.parent_id === newParentId).length;
+    
+    if (user && activeProjectId) {
+      await supabase.from('docs').update({ parent_id: newParentId, order: newOrder }).eq('id', docId);
+    }
+    
+    setDocs(curr => curr.map(d => d.id === docId 
+      ? { ...d, parent_id: newParentId, order: newOrder } 
+      : d
+    ));
   };
 
   const debouncedSaveDoc = React.useCallback((id: string, updates: any) => {
@@ -1147,6 +1190,7 @@ export default function App() {
               onDeleteDoc={handleDeleteDoc}
               onRenameDoc={handleRenameDoc}
               onReorderDocs={handleReorderDocs}
+              onMoveDoc={handleMoveDoc}
               onToggleFolder={toggleFolder}
               expandedFolders={expandedFolders}
               onContextMenu={handleContextMenu}
@@ -1353,8 +1397,21 @@ export default function App() {
                   <div
                     key={color}
                     onClick={() => {
-                        handleUpdateMetadata(contextMenu.id, { folder_color: color === 'transparent' ? undefined : color });
-                        setContextMenu(null);
+                        (async () => {
+                          const targetId = contextMenu.id;
+                          const folder_color = color === 'transparent' ? undefined : color;
+                          const targetDoc = docs.find(d => d.id === targetId);
+                          if (!targetDoc) return;
+                          
+                          const newMetadata = { ...targetDoc.metadata, folder_color, updated_at: Date.now() };
+                          
+                          if (user && activeProjectId) {
+                            await supabase.from('docs').update({ metadata: newMetadata }).eq('id', targetId);
+                          }
+                          
+                          setDocs(curr => curr.map(d => d.id === targetId ? { ...d, metadata: newMetadata } : d));
+                          setContextMenu(null);
+                        })();
                     }}
                     className="w-5 h-5 rounded-full cursor-pointer hover:scale-110 transition-transform shadow-sm"
                     style={{ 

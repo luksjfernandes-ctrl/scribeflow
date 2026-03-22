@@ -223,6 +223,7 @@ interface BinderProps {
   renamingId: string | null;
   onRenameComplete: () => void;
   onUpdateDoc: (id: string, updates: Partial<Doc>) => void;
+  onMoveDoc: (docId: string, newParentId: string) => void;
 }
 
 export const Binder: React.FC<BinderProps> = ({
@@ -241,7 +242,8 @@ export const Binder: React.FC<BinderProps> = ({
   onContextMenu,
   renamingId,
   onRenameComplete,
-  onUpdateDoc
+  onUpdateDoc,
+  onMoveDoc
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -258,7 +260,17 @@ export const Binder: React.FC<BinderProps> = ({
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    if (over && active.id !== over.id) {
+    if (!over || active.id === over.id) return;
+
+    const draggedDoc = docs.find(d => d.id === active.id);
+    const targetDoc = docs.find(d => d.id === over.id);
+    if (!draggedDoc || !targetDoc) return;
+
+    // Se o target é uma pasta, mover o item PARA DENTRO da pasta
+    if (targetDoc.type === 'folder' || targetDoc.folder_role) {
+      onMoveDoc(active.id as string, targetDoc.id);
+    } else {
+      // Se o target é um documento, reordenar dentro do mesmo parent
       onReorderDocs(active.id as string, over.id as string);
     }
   };
