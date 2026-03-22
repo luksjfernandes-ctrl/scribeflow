@@ -267,7 +267,7 @@ export const Binder: React.FC<BinderProps> = ({
     if (!draggedDoc || !targetDoc) return;
 
     // Se o target é uma pasta, mover o item PARA DENTRO da pasta
-    if (targetDoc.type === 'folder' || targetDoc.folder_role) {
+    if (targetDoc.type === 'folder' || targetDoc.metadata.folder_role) {
       onMoveDoc(active.id as string, targetDoc.id);
     } else {
       // Se o target é um documento, reordenar dentro do mesmo parent

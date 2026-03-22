@@ -3,7 +3,7 @@ import { Doc } from '../types';
 import { ICONS, FOLDER_COLORS } from '../constants';
 
 export const getDocIcon = (doc: Doc) => {
-  const role = doc.folder_role as keyof typeof FOLDER_COLORS;
+  const role = doc.metadata.folder_role as keyof typeof FOLDER_COLORS;
   const defaultFolderColor = FOLDER_COLORS[role] || FOLDER_COLORS.manuscript;
   const color = doc.metadata?.folder_color || defaultFolderColor;
   

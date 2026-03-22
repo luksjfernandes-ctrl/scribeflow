@@ -35,6 +35,7 @@ export interface DocumentMetadata {
   status: string;
   label: string;
   folder_color?: string;
+  folder_role?: FolderRole | null;
   subtitle?: string;
   label_color: string;
   synopsis: string;
@@ -61,7 +62,6 @@ export interface Doc {
   order: number;
   metadata: DocumentMetadata;
   is_expanded?: boolean;
-  folder_role?: FolderRole | null;
 }
 
 export interface ProjectSettings {

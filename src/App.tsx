@@ -71,11 +71,11 @@ const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
   const defaultMeta = { section_type: 'Heading', is_include_in_compile: false, created_at: Date.now(), updated_at: Date.now(), status: 'To Do', label: 'none', label_color: 'transparent', synopsis: '', notes: '', target_word_count: 0, keywords: [], custom_metadata: {}, snapshots: [], comments: [], bookmarks: [] };
 
   return [
-    { id: manuscriptId, project_id: projectId, title: 'Manuscript', content: '', type: 'folder', parent_id: null, order: 0, folder_role: 'manuscript', metadata: { ...defaultMeta, is_include_in_compile: true } as DocumentMetadata },
-    { id: charactersId, project_id: projectId, title: 'Characters', content: '', type: 'folder', parent_id: null, order: 1, folder_role: 'characters', metadata: { ...defaultMeta, folder_color: '#9B59B6' } as DocumentMetadata },
-    { id: placesId, project_id: projectId, title: 'Places', content: '', type: 'folder', parent_id: null, order: 2, folder_role: 'places', metadata: { ...defaultMeta, folder_color: '#27AE60' } as DocumentMetadata },
-    { id: researchId, project_id: projectId, title: 'Research', content: '', type: 'folder', parent_id: null, order: 3, folder_role: 'research', metadata: { ...defaultMeta, folder_color: '#3498DB' } as DocumentMetadata },
-    { id: trashId, project_id: projectId, title: 'Trash', content: '', type: 'trash', parent_id: null, order: 4, folder_role: 'trash', metadata: { ...defaultMeta, folder_color: '#95A5A6' } as DocumentMetadata },
+    { id: manuscriptId, project_id: projectId, title: 'Manuscript', content: '', type: 'folder', parent_id: null, order: 0, metadata: { ...defaultMeta, is_include_in_compile: true, folder_role: 'manuscript' } as DocumentMetadata },
+    { id: charactersId, project_id: projectId, title: 'Characters', content: '', type: 'folder', parent_id: null, order: 1, metadata: { ...defaultMeta, folder_color: '#9B59B6', folder_role: 'characters' } as DocumentMetadata },
+    { id: placesId, project_id: projectId, title: 'Places', content: '', type: 'folder', parent_id: null, order: 2, metadata: { ...defaultMeta, folder_color: '#27AE60', folder_role: 'places' } as DocumentMetadata },
+    { id: researchId, project_id: projectId, title: 'Research', content: '', type: 'folder', parent_id: null, order: 3, metadata: { ...defaultMeta, folder_color: '#3498DB', folder_role: 'research' } as DocumentMetadata },
+    { id: trashId, project_id: projectId, title: 'Trash', content: '', type: 'trash', parent_id: null, order: 4, metadata: { ...defaultMeta, folder_color: '#95A5A6', folder_role: 'trash' } as DocumentMetadata },
     { id: crypto.randomUUID(), project_id: projectId, title: 'Chapter 1', content: '', type: 'text', parent_id: manuscriptId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene', is_include_in_compile: true } as DocumentMetadata },
     { id: crypto.randomUUID(), project_id: projectId, title: 'Character Sheet', content: '', type: 'characters', parent_id: charactersId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
     { id: crypto.randomUUID(), project_id: projectId, title: 'Location Sheet', content: '', type: 'places', parent_id: placesId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
@@ -565,7 +565,6 @@ export default function App() {
     title: z.string().min(1).max(200),
     type: z.enum(['text', 'folder', 'trash', 'characters', 'places', 'research'] as const),
     parent_id: z.string().uuid().nullable(),
-    folder_role: z.string().nullable().optional(),
   });
 
   const updateDocumentSchema = z.object({
@@ -621,7 +620,6 @@ export default function App() {
         title: newDoc.title,
         type: newDoc.type,
         parent_id: newDoc.parent_id,
-        folder_role: newDoc.folder_role
       });
     } catch (err) {
       console.error('Zod Validation Error (Add Doc):', err);
@@ -658,7 +656,7 @@ export default function App() {
 
   const handleDeleteDoc = async (id: string) => {
     const targetDoc = docs.find(d => d.id === id);
-    if (!targetDoc || targetDoc.folder_role) return; // Cannot delete structural folders
+    if (!targetDoc || targetDoc.metadata.folder_role) return; // Cannot delete structural folders
     
     let isInTrash = targetDoc.parent_id === trashFolder?.id;
     let parent = docs.find(d => d.id === targetDoc.parent_id);
