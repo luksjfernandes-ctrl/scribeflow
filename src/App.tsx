@@ -746,13 +746,16 @@ export default function App() {
     if (!error && insertedData && insertedData.length > 0) {
       const createdProject = insertedData[0] as Project;
       setProjects([createdProject, ...projects]);
-      setActiveProjectId(newProjectId);
-      localStorage.setItem('scribeflow-last-project', newProjectId);
       try {
         const initialDocs = generateInitialDocs(newProjectId);
         await supabase.from('docs').insert(initialDocs);
+        
+        setActiveProjectId(newProjectId);
+        localStorage.setItem('scribeflow-last-project', newProjectId);
       } catch (e) {
         console.error('Failed to initialize project docs', e);
+        // Fallback to active project even if docs fail
+        setActiveProjectId(newProjectId);
       }
     } else {
       console.error('[Supabase] Error creating project:', error);
@@ -1182,6 +1185,7 @@ export default function App() {
                         onChange={(content) => handleUpdateDoc(selectedDoc.id, { content })}
                         title={selectedDoc.title}
                         onTitleChange={(title) => handleUpdateDoc(selectedDoc.id, { title })}
+                        onSubtitleChange={(subtitle) => handleUpdateMetadata(selectedDoc.id, { subtitle })}
                         doc={selectedDoc}
                         zoom={zoom}
                         onZoomChange={setZoom}

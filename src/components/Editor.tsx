@@ -187,22 +187,19 @@ export function Editor({
             maxWidth: `${doc.metadata.section_type === 'Heading' ? 'none' : '800px'}`
           }}
         >
-          <input 
-            type="text" 
+          <textarea 
+            rows={1}
             value={title}
-            onChange={(e) => onTitleChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                const subtitleInput = document.getElementById('editor-subtitle');
-                if (subtitleInput) {
-                  subtitleInput.focus();
-                } else {
-                  editor?.commands.focus();
-                }
-              }
+            onChange={(e) => {
+              onTitleChange(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = e.target.scrollHeight + 'px';
             }}
-            className="w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2"
+            onFocus={(e) => {
+              e.target.style.height = 'auto';
+              e.target.style.height = e.target.scrollHeight + 'px';
+            }}
+            className="w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2 resize-none overflow-hidden"
             placeholder="Untitled Document"
           />
           <input
@@ -216,7 +213,7 @@ export function Editor({
                 editor?.commands.focus();
               }
             }}
-            className="w-full text-[14px] font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-40 mb-8"
+            className="w-full text-[14px] font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-60 mb-8"
             placeholder="Write a subtitle or epigraph..."
           />
           <EditorContent 
