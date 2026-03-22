@@ -679,18 +679,11 @@ export default function App() {
         if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
       }
     } else if (trashFolder) {
-      // Move to trash — chamada direta, sem debounce
-      const updatedMetadata = targetDoc.metadata.is_include_in_compile 
+      const updatedMetadata = targetDoc.metadata.is_include_in_compile
         ? { ...targetDoc.metadata, is_include_in_compile: false }
         : targetDoc.metadata;
-      
       if (user && activeProjectId) {
-        await supabase.from('docs').update({ 
-          parent_id: trashFolder.id, 
-          metadata: updatedMetadata 
-        }).eq('id', id);
-
-        // Se for pasta, mover filhos também
+        await supabase.from('docs').update({ parent_id: trashFolder.id, metadata: updatedMetadata }).eq('id', id);
         if (targetDoc.type === 'folder') {
           const childIds = getAllChildrenIds(id, docs);
           if (childIds.length > 0) {
@@ -698,14 +691,12 @@ export default function App() {
           }
         }
       }
-      
-      const childIds = targetDoc.type === 'folder' ? getAllChildrenIds(id, docs) : [];
-      setDocs(curr => curr.map(d => 
-        d.id === id || childIds.includes(d.id)
-        ? { ...d, parent_id: trashFolder.id, metadata: d.id === id ? updatedMetadata : d.metadata } 
-        : d
-      ));
-      if (selectedDocId === id || childIds.includes(selectedDocId || '')) setSelectedDocId(null);
+      setDocs(curr => curr.map(d => {
+        if (d.id === id) return { ...d, parent_id: trashFolder.id, metadata: updatedMetadata };
+        if (targetDoc.type === 'folder' && getAllChildrenIds(id, docs).includes(d.id)) return { ...d, parent_id: trashFolder.id };
+        return d;
+      }));
+      if (selectedDocId === id) setSelectedDocId(null);
     }
   };
 
