@@ -1,11 +1,5 @@
 import React from 'react';
-import { Editor as TiptapEditor, EditorContent, useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
-import Highlight from '@tiptap/extension-highlight';
-import TextAlign from '@tiptap/extension-text-align';
-import Placeholder from '@tiptap/extension-placeholder';
-import CharacterCount from '@tiptap/extension-character-count';
+import { Editor as TiptapEditor, EditorContent } from '@tiptap/react';
 import {
   Bold,
   Italic,
@@ -141,26 +135,7 @@ export function Editor({
   externalEditor,
   onSubtitleChange
 }: EditorProps) {
-  const localEditor = useEditor({
-    extensions: [
-      StarterKit,
-      Underline,
-      Highlight,
-      TextAlign.configure({
-        types: ['heading', 'paragraph'],
-      }),
-      Placeholder.configure({
-        placeholder: 'Start writing...',
-      }),
-      CharacterCount,
-    ],
-    content,
-    onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
-    },
-  });
-
-  const editor = externalEditor || localEditor;
+  const editor = externalEditor;
 
   // Set content only when the document changes to prevent bounce-back from autosave
   React.useEffect(() => {

@@ -258,21 +258,32 @@ export const Binder: React.FC<BinderProps> = ({
     })
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = (event: any) => {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over) return;
 
-    const draggedDoc = docs.find(d => d.id === active.id);
-    const targetDoc = docs.find(d => d.id === over.id);
-    if (!draggedDoc || !targetDoc) return;
+    const docId = active.id;
+    const overId = over.id;
 
-    // Se o target é uma pasta, mover o item PARA DENTRO da pasta
-    if (targetDoc.type === 'folder' || targetDoc.metadata.folder_role) {
-      onMoveDoc(active.id as string, targetDoc.id);
+    if (docId === overId) return;
+
+    const targetDoc = docs.find(d => d.id === overId);
+    const movingDoc = docs.find(d => d.id === docId);
+
+    if (!targetDoc || !movingDoc) return;
+
+    let newParentId: string | null = null;
+
+    if (targetDoc.type === 'folder') {
+      newParentId = targetDoc.id;
     } else {
-      // Se o target é um documento, reordenar dentro do mesmo parent
-      onReorderDocs(active.id as string, over.id as string);
+      newParentId = targetDoc.parent_id;
     }
+
+    // Não permitir mover para dentro de si mesmo ou se for pasta estrutural
+    if (newParentId === docId || movingDoc.metadata.folder_role) return;
+
+    onMoveDoc(docId, newParentId);
   };
 
   const renderChildren = (parent_id: string | null, depth: number = 0) => {

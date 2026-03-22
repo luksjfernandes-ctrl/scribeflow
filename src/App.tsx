@@ -121,6 +121,7 @@ export default function App() {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
   const saveDocTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const pendingUpdatesRef = React.useRef<Record<string, Partial<Doc> | any>>({});
+  const isLocalOperationRef = React.useRef<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'pending' | 'error'>('saved');
 
   useEffect(() => {
@@ -477,10 +478,19 @@ export default function App() {
           
           await supabase.from('projects').insert(initialProject);
           const initialDocs = generateInitialDocs(userProjectId);
-          await supabase.from('docs').insert(initialDocs);
+          
+          isLocalOperationRef.current = true;
+          const { data: createdDocs, error: docsError } = await supabase.from('docs').insert(initialDocs).select();
+          
+          if (docsError) {
+            console.error('AUTO-INIT TEMPLATE ERROR:', docsError);
+          } else if (createdDocs) {
+            setDocs(createdDocs as Doc[]);
+          }
           
           setProjects([initialProject as Project]);
           setActiveProjectId(userProjectId);
+          setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
         }
       };
 
@@ -524,7 +534,9 @@ export default function App() {
 
     const docsChannel = supabase.channel(`docs-list-${activeProjectId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${activeProjectId}` }, 
-        () => fetchDocs())
+        () => {
+          if (!isLocalOperationRef.current) fetchDocs();
+        })
       .subscribe();
 
     return () => {
@@ -627,14 +639,17 @@ export default function App() {
     }
 
     if (user && activeProjectId) {
+      isLocalOperationRef.current = true;
       try {
         const docWithProjectId = { ...newDoc, project_id: activeProjectId };
         await supabase.from('docs').insert(docWithProjectId);
+        setDocs(curr => [...curr, docWithProjectId as Doc]);
       } catch (e) {
         console.error('Error adding doc:', e);
       }
+      setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
     } else if (!user) {
-      setDocs([...docs, newDoc]);
+      setDocs(curr => [...curr, newDoc]);
     }
     
     setSelectedDocId(newDoc.id);
@@ -669,11 +684,13 @@ export default function App() {
       if (window.confirm('Tem certeza de que deseja excluir permanentemente este item? Esta ação não pode ser desfeita.')) {
         const idsToDelete = [id, ...getAllChildrenIds(id, docs)];
         if (user && activeProjectId) {
+          isLocalOperationRef.current = true;
           try {
             await supabase.from('docs').delete().in('id', idsToDelete);
           } catch(e) { console.error('Delete error', e); }
         }
         setDocs(curr => curr.filter(d => !idsToDelete.includes(d.id)));
+        setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
         if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
       }
     } else if (trashFolder) {
@@ -681,6 +698,7 @@ export default function App() {
         ? { ...targetDoc.metadata, is_include_in_compile: false }
         : targetDoc.metadata;
       if (user && activeProjectId) {
+        isLocalOperationRef.current = true;
         await supabase.from('docs').update({ parent_id: trashFolder.id, metadata: updatedMetadata }).eq('id', id);
         if (targetDoc.type === 'folder') {
           const childIds = getAllChildrenIds(id, docs);
@@ -694,6 +712,7 @@ export default function App() {
         if (targetDoc.type === 'folder' && getAllChildrenIds(id, docs).includes(d.id)) return { ...d, parent_id: trashFolder.id };
         return d;
       }));
+      setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
       if (selectedDocId === id) setSelectedDocId(null);
     }
   };
@@ -756,10 +775,23 @@ export default function App() {
       setProjects([createdProject, ...projects]);
       try {
         const initialDocs = generateInitialDocs(newProjectId);
-        await supabase.from('docs').insert(initialDocs);
+        
+        isLocalOperationRef.current = true;
+        const { data: createdDocs, error: docsError } = await supabase
+          .from('docs')
+          .insert(initialDocs)
+          .select();
+
+        if (docsError) {
+          console.error('TEMPLATE INSERT ERROR:', docsError);
+          alert('Erro ao criar estrutura do projeto: ' + docsError.message);
+        } else if (createdDocs) {
+          setDocs(createdDocs as Doc[]);
+        }
         
         setActiveProjectId(newProjectId);
         localStorage.setItem('scribeflow-last-project', newProjectId);
+        setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
       } catch (e) {
         console.error('Failed to initialize project docs', e);
         // Fallback to active project even if docs fail
@@ -919,7 +951,9 @@ export default function App() {
     });
 
     if (user && activeProjectId && newMetadata) {
+      isLocalOperationRef.current = true;
       debouncedSaveDoc(id, { metadata: newMetadata });
+      setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
     }
   };
 
