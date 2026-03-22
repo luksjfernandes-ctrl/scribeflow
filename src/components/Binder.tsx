@@ -27,6 +27,7 @@ import { cn } from '../lib/utils';
 import {
   DndContext,
   closestCenter,
+  pointerWithin,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -383,7 +384,7 @@ export const Binder: React.FC<BinderProps> = ({
       <div className="flex-1 overflow-y-auto py-1 scrivener-scrollbar">
         <DndContext 
           sensors={sensors}
-          collisionDetection={closestCenter}
+          collisionDetection={pointerWithin}
           onDragEnd={handleDragEnd}
         >
           {renderChildren(null)}
