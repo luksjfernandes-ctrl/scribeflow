@@ -106,6 +106,25 @@ USING (
 ALTER PUBLICATION supabase_realtime ADD TABLE public.projects;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.docs;
 
+-- 7.1 Validate metadata.folder_color server-side (defense against XSS in SVG icons).
+-- Accept only #RGB / #RRGGBB / #RRGGBBAA hex strings or simple named colors.
+ALTER TABLE public.docs
+  ADD CONSTRAINT docs_metadata_folder_color_safe
+  CHECK (
+    metadata->>'folder_color' IS NULL
+    OR metadata->>'folder_color' ~ '^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?([0-9A-Fa-f]{2})?$'
+    OR metadata->>'folder_color' ~ '^[a-zA-Z]{3,20}$'
+  );
+
+ALTER TABLE public.docs
+  ADD CONSTRAINT docs_metadata_label_color_safe
+  CHECK (
+    metadata->>'label_color' IS NULL
+    OR metadata->>'label_color' = 'transparent'
+    OR metadata->>'label_color' ~ '^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?([0-9A-Fa-f]{2})?$'
+    OR metadata->>'label_color' ~ '^[a-zA-Z]{3,20}$'
+  );
+
 -- 8. Stored Procedure for new project structural generation
 CREATE OR REPLACE FUNCTION create_project_structure(p_project_id TEXT)
 RETURNS void AS $$
