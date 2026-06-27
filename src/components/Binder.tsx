@@ -45,6 +45,22 @@ import { CSS } from '@dnd-kit/utilities';
 
 
 
+const stripHtml = (html: string) =>
+  (html || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const matchesSearch = (doc: Doc, query: string): boolean => {
+  const q = query.toLowerCase();
+  return (
+    doc.title.toLowerCase().includes(q) ||
+    (doc.metadata?.synopsis || '').toLowerCase().includes(q) ||
+    stripHtml(doc.content).toLowerCase().includes(q)
+  );
+};
+
 interface SortableBinderItemProps {
   doc: Doc;
   depth: number;
@@ -207,6 +223,18 @@ function SortableBinderItem({
         )}
 
         <div className="flex items-center gap-2">
+          {(doc.metadata?.keywords?.length ?? 0) > 0 && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              {doc.metadata.keywords.slice(0, 3).map((kw) => (
+                <span
+                  key={kw.text}
+                  className="w-2 h-2 rounded-sm"
+                  style={{ backgroundColor: kw.color }}
+                  title={kw.text}
+                />
+              ))}
+            </div>
+          )}
           {wordCount > 0 && (
             <span className="text-[10px] text-on-surface-variant/60 font-mono opacity-0 group-hover:opacity-100">{wordCount}</span>
           )}
@@ -296,6 +324,40 @@ export const Binder: React.FC<BinderProps> = ({
     }
   };
 
+  // Flat full-text results — shown while a search is active so matches inside
+  // collapsed folders surface too (the tree only renders expanded branches).
+  const renderSearchResults = () => {
+    const results = docs
+      .filter((d) => d.metadata?.folder_role !== 'trash' && matchesSearch(d, searchQuery))
+      .sort((a, b) => a.title.localeCompare(b.title));
+
+    if (results.length === 0) {
+      return (
+        <div className="px-4 py-6 text-center text-[12px] italic text-[#8A877F]">
+          No matches for “{searchQuery}”.
+        </div>
+      );
+    }
+
+    return results.map((doc) => (
+      <div
+        key={doc.id}
+        className={cn('binder-item group', selectedDocId === doc.id && 'selected')}
+        style={{ paddingLeft: '12px' }}
+        onClick={() => onSelectDoc(doc.id)}
+      >
+        <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">{getDocIcon(doc)}</div>
+        {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
+          <div
+            className="w-2 h-2 rounded-full mr-2 shadow-sm shrink-0"
+            style={{ backgroundColor: doc.metadata.label_color }}
+          />
+        )}
+        <span className="flex-1 truncate text-[13px] tracking-tight">{doc.title}</span>
+      </div>
+    ));
+  };
+
   const renderChildren = (parent_id: string | null, depth: number = 0) => {
     const children = docs
       .filter(d => d.parent_id === parent_id)
@@ -309,10 +371,6 @@ export const Binder: React.FC<BinderProps> = ({
         strategy={verticalListSortingStrategy}
       >
         {children.map(doc => {
-          if (searchQuery && !doc.title.toLowerCase().includes(searchQuery.toLowerCase())) {
-            return null;
-          }
-
           return (
             <SortableBinderItem
               key={doc.id}
@@ -397,13 +455,17 @@ export const Binder: React.FC<BinderProps> = ({
       </div>
       
       <div className="flex-1 overflow-y-auto py-1 scrivener-scrollbar">
-        <DndContext 
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          {renderChildren(null)}
-        </DndContext>
+        {searchQuery.trim() ? (
+          renderSearchResults()
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            {renderChildren(null)}
+          </DndContext>
+        )}
       </div>
 
       <div className="p-2 border-t border-[#333] flex items-center justify-between bg-black/10">

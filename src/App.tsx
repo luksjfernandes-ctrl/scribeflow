@@ -15,6 +15,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
 import { ParagraphFocus } from './extensions/paragraphFocus';
+import { CommentMark } from './extensions/commentMark';
 import ProjectsModal from './components/ProjectsModal';
 import { 
   Layout, 
@@ -38,18 +39,23 @@ import {
   Trash2,
   Edit3,
   Folder,
-  File
+  File,
+  Target,
+  BarChart3
 } from 'lucide-react';
-import { Doc, Project, ViewMode, DocumentType, DocumentMetadata } from './types';
+import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot, Comment } from './types';
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
 import { arrayMove } from '@dnd-kit/sortable';
-import { Inspector } from './components/Inspector';
+import { Inspector, InspectorTab } from './components/Inspector';
 import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
 import { Scrivenings } from './components/Scrivenings';
 import { CompositionMode } from './components/CompositionMode';
+import { QuickSearch } from './components/QuickSearch';
+import { TargetsModal } from './components/TargetsModal';
+import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './lib/supabase';
@@ -111,6 +117,11 @@ export default function App() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
+  const [isTargetsOpen, setIsTargetsOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('notes');
+  const sessionBaselineRef = React.useRef<number | null>(null);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isBinderOpen, setIsBinderOpen] = useState(true);
   const [isCompositionMode, setIsCompositionMode] = useState(false);
@@ -547,9 +558,35 @@ export default function App() {
   const { manuscript: manuscriptFolder, trash: trashFolder, characters: charactersFolder, places: placesFolder, research: researchFolder } = useStructuralFolders(docs);
 
   // Derived State
-  const selectedDoc = useMemo(() => 
+  const selectedDoc = useMemo(() =>
     docs.find(d => d.id === selectedDocId) || null
   , [docs, selectedDocId]);
+
+  // Total manuscript word count across all documents in the project.
+  const projectWordCount = useMemo(
+    () =>
+      docs.reduce(
+        (acc, doc) =>
+          acc + (doc.content?.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length || 0),
+        0
+      ),
+    [docs]
+  );
+
+  // Reset the session baseline whenever the active project changes.
+  useEffect(() => {
+    sessionBaselineRef.current = null;
+  }, [activeProjectId]);
+
+  // Capture the baseline once documents for the current project have loaded.
+  useEffect(() => {
+    if (sessionBaselineRef.current === null && docs.length > 0) {
+      sessionBaselineRef.current = projectWordCount;
+    }
+  }, [docs.length, projectWordCount]);
+
+  const sessionWords =
+    sessionBaselineRef.current === null ? 0 : Math.max(0, projectWordCount - sessionBaselineRef.current);
 
   const currentFolderDocs = useMemo(() => {
     if (!selectedDoc) return [];
@@ -902,6 +939,7 @@ export default function App() {
       }),
       CharacterCount,
       ParagraphFocus,
+      CommentMark,
     ],
     onUpdate: ({ editor }) => {
       if (selectedDoc) {
@@ -930,6 +968,11 @@ export default function App() {
           setIsCompositionMode(true);
         }
       }
+      // Cmd/Ctrl+O — Quick Search / Go to document
+      if (e.key === 'o' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setIsQuickSearchOpen((prev) => !prev);
+      }
     };
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
@@ -954,6 +997,75 @@ export default function App() {
       isLocalOperationRef.current = true;
       debouncedSaveDoc(id, { metadata: newMetadata });
       setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
+    }
+  };
+
+  const handleRestoreSnapshot = (snapshot: Snapshot) => {
+    if (!selectedDoc) return;
+    // Push the snapshot content straight into the live editor; the sync effect
+    // only runs on doc.id changes, so restoring the same doc needs this.
+    if (globalEditor) {
+      globalEditor.commands.setContent(snapshot.content);
+    }
+    handleUpdateDoc(selectedDoc.id, { title: snapshot.title, content: snapshot.content });
+  };
+
+  const handleAddComment = (id: string, quote: string) => {
+    if (!selectedDoc) return;
+    const comment: Comment = {
+      id,
+      author: user?.user_metadata?.full_name || user?.email || 'You',
+      text: '',
+      timestamp: Date.now(),
+      quote,
+      color: '#FFD66B',
+    };
+    const comments = [...(selectedDoc.metadata.comments || []), comment];
+    handleUpdateMetadata(selectedDoc.id, { comments });
+    setInspectorTab('comments');
+    setIsInspectorOpen(true);
+  };
+
+  const handleUpdateComment = (id: string, text: string) => {
+    if (!selectedDoc) return;
+    const comments = (selectedDoc.metadata.comments || []).map((c) =>
+      c.id === id ? { ...c, text } : c
+    );
+    handleUpdateMetadata(selectedDoc.id, { comments });
+  };
+
+  const handleDeleteComment = (id: string) => {
+    if (!selectedDoc) return;
+    if (globalEditor) {
+      globalEditor.chain().focus().removeComment(id).run();
+    }
+    const comments = (selectedDoc.metadata.comments || []).filter((c) => c.id !== id);
+    handleUpdateMetadata(selectedDoc.id, { comments });
+  };
+
+  const handleSelectComment = (id: string) => {
+    if (!globalEditor) return;
+    const { state } = globalEditor;
+    const markType = state.schema.marks.comment;
+    if (!markType) return;
+    let range: { from: number; to: number } | null = null;
+    state.doc.descendants((node, pos) => {
+      if (range || !node.isText) return;
+      if (node.marks.some((m) => m.type === markType && m.attrs.commentId === id)) {
+        range = { from: pos, to: pos + node.nodeSize };
+      }
+    });
+    if (range) {
+      globalEditor.chain().focus().setTextSelection(range).scrollIntoView().run();
+    }
+  };
+
+  const handleUpdateSettings = async (settings: Partial<Project['settings']>) => {
+    if (!project) return;
+    const updatedSettings = { ...project.settings, ...settings };
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, settings: updatedSettings } : p)));
+    if (user) {
+      await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
     }
   };
 
@@ -1144,12 +1256,15 @@ export default function App() {
 
         <div className="toolbar-spacer" />
 
-        {/* Search Field */}
+        {/* Search Field — opens Quick Search (⌘O) */}
         <div className="relative flex items-center">
-          <input 
-            type="text" 
-            placeholder="Search Project" 
-            className="toolbar-search"
+          <input
+            type="text"
+            placeholder="Search Project (⌘O)"
+            className="toolbar-search cursor-pointer"
+            readOnly
+            onFocus={() => setIsQuickSearchOpen(true)}
+            onClick={() => setIsQuickSearchOpen(true)}
           />
           <Search size={12} className="absolute left-2 text-[#8A877F]" />
         </div>
@@ -1170,6 +1285,14 @@ export default function App() {
             <Download size={16} />
           </button>
           
+          <button onClick={() => setIsTargetsOpen(true)} className="macos-btn" title="Project Targets">
+            <Target size={16} />
+          </button>
+
+          <button onClick={() => setIsStatsOpen(true)} className="macos-btn" title="Project Statistics">
+            <BarChart3 size={16} />
+          </button>
+
           <button onClick={() => setIsSettingsOpen(true)} className="macos-btn" title="Project Settings">
             <Settings size={16} />
           </button>
@@ -1255,6 +1378,7 @@ export default function App() {
                         zoom={zoom}
                         onZoomChange={setZoom}
                         externalEditor={globalEditor}
+                        onAddComment={handleAddComment}
                       />
                     )
                   )}
@@ -1315,9 +1439,15 @@ export default function App() {
               onMouseDown={startResizingInspector}
               className="splitter"
             />
-            <Inspector 
+            <Inspector
               doc={selectedDoc}
+              tab={inspectorTab}
+              onTabChange={setInspectorTab}
               onUpdateMetadata={handleUpdateMetadata}
+              onRestoreSnapshot={handleRestoreSnapshot}
+              onUpdateComment={handleUpdateComment}
+              onDeleteComment={handleDeleteComment}
+              onSelectComment={handleSelectComment}
             />
           </div>
         )}
@@ -1335,19 +1465,34 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Quick Search / Go to document (⌘O) */}
+      {isQuickSearchOpen && (
+        <QuickSearch
+          docs={docs}
+          onSelect={navigateTo}
+          onClose={() => setIsQuickSearchOpen(false)}
+        />
+      )}
+
+      {/* Project Statistics */}
+      <StatisticsModal isOpen={isStatsOpen} onClose={() => setIsStatsOpen(false)} docs={docs} />
+
+      {/* Project Targets */}
+      <TargetsModal
+        isOpen={isTargetsOpen}
+        onClose={() => setIsTargetsOpen(false)}
+        settings={project?.settings || { target_word_count: 50000, session_target: 1000, deadline: null, composition_theme: 'sepia', theme: 'traditional', paper_width: 800, background_opacity: 0.9 }}
+        projectWords={projectWordCount}
+        sessionWords={sessionWords}
+        onUpdateSettings={handleUpdateSettings}
+      />
+
       {/* Modals */}
-      <SettingsModal 
+      <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={project?.settings || { target_word_count: 50000, session_target: 1000, deadline: null, composition_theme: 'sepia', theme: 'traditional', paper_width: 800, background_opacity: 0.9 }}
-        onUpdateSettings={async (settings) => {
-          if (!project) return;
-          const updatedSettings = { ...project.settings, ...settings };
-          setProjects(prev => prev.map(p => p.id === project.id ? { ...p, settings: updatedSettings } : p));
-          if (user) {
-            await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
-          }
-        }}
+        onUpdateSettings={handleUpdateSettings}
       />
       <ExportModal 
         isOpen={isExportOpen}
@@ -1455,7 +1600,35 @@ export default function App() {
         <div className="flex items-center">
           <span className="opacity-70">PROJECT: <span className="font-bold text-[#436127]">{project?.name || 'Loading...'}</span></span>
           <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3" />
-          <span className="opacity-70">WORDS: <span className="font-bold text-[#436127]">{docs.reduce((acc, doc) => acc + (doc.content?.replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length || 0), 0)}</span></span>
+          <button
+            className="flex items-center gap-2 hover:text-[#436127] transition-colors"
+            title="Open Project Targets"
+            onClick={() => setIsTargetsOpen(true)}
+          >
+            <span className="opacity-70">WORDS: <span className="font-bold text-[#436127]">{projectWordCount.toLocaleString()}</span></span>
+            {(project?.settings?.target_word_count ?? 0) > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-16 h-1.5 rounded-full bg-black/15 overflow-hidden inline-block align-middle">
+                  <span
+                    className="block h-full rounded-full"
+                    style={{
+                      width: `${Math.min(100, Math.round((projectWordCount / project!.settings.target_word_count) * 100))}%`,
+                      backgroundColor:
+                        projectWordCount >= project!.settings.target_word_count ? '#40A040' : '#5B7A3D',
+                    }}
+                  />
+                </span>
+                <span className="font-bold text-[#436127]">
+                  {Math.min(100, Math.round((projectWordCount / project!.settings.target_word_count) * 100))}%
+                </span>
+              </span>
+            )}
+            {(project?.settings?.session_target ?? 0) > 0 && (
+              <span className="opacity-70">
+                · SESSION: <span className="font-bold text-[#436127]">{sessionWords.toLocaleString()}/{project!.settings.session_target.toLocaleString()}</span>
+              </span>
+            )}
+          </button>
         </div>
         <div className="flex items-center">
           <span className="opacity-70">{selectedDoc ? `SELECTED: ${selectedDoc.title}` : 'NO SELECTION'}</span>

@@ -1,6 +1,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" />
-  <img src="https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=white" alt="React 18" />
+  <img src="https://img.shields.io/badge/react-19-61DAFB?logo=react&logoColor=white" alt="React 19" />
   <img src="https://img.shields.io/badge/supabase-realtime-3FCF8E?logo=supabase&logoColor=white" alt="Supabase" />
   <img src="https://img.shields.io/badge/tiptap-editor-1a1a2e" alt="TipTap" />
   <img src="https://img.shields.io/badge/deploy-vercel-000?logo=vercel" alt="Vercel" />
@@ -41,7 +41,7 @@ Scrivener is the gold standard for fiction writing software — but it's paid, d
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, TypeScript, Vite |
+| Frontend | React 19, TypeScript, Vite |
 | Editor | TipTap (ProseMirror) |
 | Styling | Tailwind CSS |
 | Backend | Supabase (PostgreSQL, Auth, Realtime) |
@@ -94,7 +94,23 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:3000](http://localhost:3000).
+
+### 5. Deploy (Vercel)
+
+The repo ships a `vercel.json` configured for Vite. After importing the repo
+into Vercel, add the same two environment variables in **Project → Settings →
+Environment Variables**:
+
+```
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+> **Note:** Supabase free-tier projects pause after a period of inactivity. If
+> the app stops loading data, un-pause the project in the Supabase dashboard.
+> The schema in `supabase_schema.sql` is idempotent, so you can safely re-run
+> it after restoring a project.
 
 ---
 

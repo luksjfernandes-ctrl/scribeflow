@@ -12,6 +12,9 @@ interface CorkboardProps {
   onUpdateSynopsis: (id: string, synopsis: string) => void;
 }
 
+const wordCount = (html: string) =>
+  (html || '').replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
+
 export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProps) {
   return (
     <div className="flex-1 bg-[#E2DFD8] p-8 overflow-y-auto scrivener-scrollbar">
@@ -39,9 +42,9 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
             </div>
             
             {/* Index Card Body (Synopsis) */}
-            <div className="flex-1 px-4 pb-4 relative">
+            <div className="flex-1 px-4 pb-3 flex flex-col min-h-0">
               <textarea
-                className="w-full h-full bg-transparent border-none focus:outline-none text-[13px] font-serif italic text-on-surface-variant/80 resize-none leading-relaxed placeholder:text-on-surface-variant/20"
+                className="flex-1 w-full bg-transparent border-none focus:outline-none text-[13px] font-serif italic text-on-surface-variant/80 resize-none leading-relaxed placeholder:text-on-surface-variant/20"
                 placeholder="No synopsis..."
                 value={doc.metadata?.synopsis || ''}
                 onChange={(e) => {
@@ -50,10 +53,47 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
                 }}
                 onClick={(e) => e.stopPropagation()}
               />
-              
+
+              {/* Keywords */}
+              {(doc.metadata?.keywords?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {doc.metadata.keywords.slice(0, 4).map((kw) => (
+                    <span
+                      key={kw.text}
+                      className="px-1.5 py-px rounded-full text-[9px] font-medium border"
+                      style={{ backgroundColor: `${kw.color}1A`, borderColor: kw.color, color: kw.color }}
+                    >
+                      {kw.text}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Target progress */}
+              {(doc.metadata?.target_word_count ?? 0) > 0 && (() => {
+                const words = wordCount(doc.content);
+                const target = doc.metadata.target_word_count;
+                const pct = Math.min(100, Math.round((words / target) * 100));
+                return (
+                  <div className="mt-2">
+                    <div className="h-1 rounded-full bg-black/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, backgroundColor: pct >= 100 ? '#40A040' : '#5B7A3D' }}
+                      />
+                    </div>
+                    <div className="text-[8px] text-on-surface-variant/40 mt-0.5 text-right">
+                      {words} / {target} words
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Card Footer Info */}
-              <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <span className="text-[9px] uppercase font-bold tracking-widest text-on-surface-variant/40">{doc.metadata.status}</span>
+              <div className="flex items-center justify-end mt-1">
+                <span className="text-[9px] uppercase font-bold tracking-widest text-on-surface-variant/40">
+                  {doc.metadata.status}
+                </span>
               </div>
             </div>
           </div>
