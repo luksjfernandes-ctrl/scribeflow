@@ -1,0 +1,499 @@
+# Instincts generated from https://github.com/luksjfernandes-ctrl/scribeflow
+# Generated: 2026-06-27T17:22:25.429Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: scribeflow-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat, chore
+
+## Evidence
+
+- 7 commits analyzed
+- Detected conventional commit pattern
+- Examples: chore: operational reactivation — idempotent schema, modern Vercel config, hygiene, feat(inspector): activate Snapshots, Keywords, Bookmarks and Custom Metadata tabs
+
+---
+id: scribeflow-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Commit Length
+
+## Action
+
+Write moderate-length commit messages (~78 characters)
+
+## Evidence
+
+- Average commit message length: 78 chars
+- Based on 7 commits
+
+---
+id: scribeflow-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Naming Files
+
+## Action
+
+Use PascalCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: PascalCase
+
+---
+id: scribeflow-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: scribeflow-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: scribeflow-arch-type-based
+trigger: "when adding new code"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Arch Type Based
+
+## Action
+
+Place code in the appropriate type folder (components/, services/, utils/, etc.)
+
+## Evidence
+
+- Type-based module organization detected
+- Folders: components, extensions
+
+---
+id: scribeflow-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: scribeflow-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~30x per month
+- Files: /*, src/*, src/components/*
+
+---
+id: scribeflow-workflow-add-new-feature-with-ui-modal-or-tab
+trigger: "when doing add new feature with ui modal or tab"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Workflow Add New Feature With Ui Modal Or Tab
+
+## Action
+
+Follow the add-new-feature-with-ui-modal-or-tab workflow:
+1. Create a new component file for the modal or tab (e.g., StatisticsModal.tsx, TargetsModal.tsx).
+2. Update App.tsx to include state and handlers for the new modal/tab and render it conditionally.
+3. Wire up UI triggers (buttons, toolbar, etc.) to open the modal/tab.
+4. If necessary, update related CSS or shared logic.
+5. Test integration with existing data models (no schema change needed).
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/App.tsx, src/components/*Modal.tsx, src/components/Inspector.tsx
+
+---
+id: scribeflow-workflow-expand-inspector-or-outliner-with-metadata-or-ui-columns
+trigger: "when doing expand inspector or outliner with metadata or ui columns"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Workflow Expand Inspector Or Outliner With Metadata Or Ui Columns
+
+## Action
+
+Follow the expand-inspector-or-outliner-with-metadata-or-ui-columns workflow:
+1. Update Inspector.tsx or Outliner.tsx to add new UI elements (tabs, columns, chips, dots, etc.).
+2. Update App.tsx if shared state or handlers are needed.
+3. If new metadata is exposed, ensure it is read from the existing data model (no schema change).
+4. Update CSS for new UI elements.
+5. Test that new metadata or visual indicators display and update correctly.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/components/Inspector.tsx, src/components/Outliner.tsx, src/App.tsx
+
+---
+id: scribeflow-workflow-add-keyword-or-progress-ui-to-multiple-views
+trigger: "when doing add keyword or progress ui to multiple views"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Workflow Add Keyword Or Progress Ui To Multiple Views
+
+## Action
+
+Follow the add-keyword-or-progress-ui-to-multiple-views workflow:
+1. Update each relevant component (e.g., Binder.tsx, Corkboard.tsx, Outliner.tsx, Inspector.tsx) to render the new UI element.
+2. Ensure color/label logic is consistent across components.
+3. Update shared CSS for visual consistency.
+4. Test metadata display in all updated views.
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/components/Binder.tsx, src/components/Corkboard.tsx, src/components/Outliner.tsx
+
+---
+id: scribeflow-coding-file-naming
+trigger: "When creating a new file (component, class, etc.)"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Coding File Naming
+
+## Action
+
+Name the file using PascalCase (e.g., StatisticsModal.tsx)
+
+## Evidence
+
+- Pattern in files: src/components/StatisticsModal.tsx, src/App.tsx
+
+---
+id: scribeflow-coding-function-naming
+trigger: "When defining a new function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Coding Function Naming
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in code: TypeScript functions in src/
+
+---
+id: scribeflow-coding-class-naming
+trigger: "When defining a new class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Coding Class Naming
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in code: TypeScript classes in src/
+
+---
+id: scribeflow-coding-constant-naming
+trigger: "When declaring a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Coding Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in code: TypeScript constants in src/
+
+---
+id: scribeflow-coding-import-style
+trigger: "When importing modules"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Coding Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in code: import statements in src/
+
+---
+id: scribeflow-coding-export-style
+trigger: "When exporting modules or functions"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Coding Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in code: export statements in src/
+
+---
+id: scribeflow-testing-location
+trigger: "When writing tests for a feature or component"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Testing Location
+
+## Action
+
+Place test files in a separate test location, not alongside source files
+
+## Evidence
+
+- Pattern in architecture: testLocation is 'separate'
+
+---
+id: scribeflow-testing-feature-workflow
+trigger: "When implementing a new feature"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Testing Feature Workflow
+
+## Action
+
+Add corresponding tests after feature implementation
+
+## Evidence
+
+- Workflow: feature-development, commit sequence includes 'Add tests for feature'
+
+---
+id: scribeflow-git-conventional-commits
+trigger: "When writing a commit message"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Git Conventional Commits
+
+## Action
+
+Use the conventional commit format with prefixes like 'feat' or 'chore', followed by a colon and a short description
+
+## Evidence
+
+- Seen in commit: 'feat: quick search (⌘O), full-text binder search, corkboard keywords & targets'
+- Pattern in commits: conventional, prefixes ['feat', 'chore']
+
+---
+id: scribeflow-git-commit-length
+trigger: "When composing a commit message"
+confidence: 0.8
+domain: git
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Git Commit Length
+
+## Action
+
+Write descriptive commit messages averaging around 78 characters
+
+## Evidence
+
+- Pattern in commits: averageLength 78
+
+---
+id: scribeflow-workflow-new-modal-feature
+trigger: "When someone wants to add a new major feature that requires a modal or a new inspector tab"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Workflow New Modal Feature
+
+## Action
+
+Create a new component file for the modal/tab, update App.tsx to include state/handlers, wire up UI triggers, update CSS if needed, and test integration (no schema change)
+
+## Evidence
+
+- Workflow: add-new-feature-with-ui-modal-or-tab
+- Example commits and files: src/App.tsx, src/components/*Modal.tsx
+
+---
+id: scribeflow-workflow-expand-inspector-outliner
+trigger: "When someone wants to surface new metadata or visual indicators in the Inspector or Outliner panels"
+confidence: 0.88
+domain: workflow
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Workflow Expand Inspector Outliner
+
+## Action
+
+Update Inspector.tsx or Outliner.tsx to add UI elements, update App.tsx if needed, expose metadata from data model, update CSS, and test display
+
+## Evidence
+
+- Workflow: expand-inspector-or-outliner-with-metadata-or-ui-columns
+- Example commits and files: src/components/Inspector.tsx, src/components/Outliner.tsx
+
+---
+id: scribeflow-workflow-add-metadata-to-views
+trigger: "When someone wants to display the same metadata (keywords, progress) across different UI panels"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: luksjfernandes-ctrl/scribeflow
+---
+
+# Scribeflow Workflow Add Metadata To Views
+
+## Action
+
+Update each relevant component (Binder.tsx, Corkboard.tsx, Outliner.tsx, Inspector.tsx) to render the new UI element, ensure consistency, update CSS, and test display
+
+## Evidence
+
+- Workflow: add-keyword-or-progress-ui-to-multiple-views
+- Example commits and files: src/components/Binder.tsx, src/components/Corkboard.tsx
+
