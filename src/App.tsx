@@ -50,6 +50,7 @@ import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
 import { Scrivenings } from './components/Scrivenings';
 import { CompositionMode } from './components/CompositionMode';
+import { QuickSearch } from './components/QuickSearch';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './lib/supabase';
@@ -111,6 +112,7 @@ export default function App() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isBinderOpen, setIsBinderOpen] = useState(true);
   const [isCompositionMode, setIsCompositionMode] = useState(false);
@@ -930,6 +932,11 @@ export default function App() {
           setIsCompositionMode(true);
         }
       }
+      // Cmd/Ctrl+O — Quick Search / Go to document
+      if (e.key === 'o' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        setIsQuickSearchOpen((prev) => !prev);
+      }
     };
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
@@ -1154,12 +1161,15 @@ export default function App() {
 
         <div className="toolbar-spacer" />
 
-        {/* Search Field */}
+        {/* Search Field — opens Quick Search (⌘O) */}
         <div className="relative flex items-center">
-          <input 
-            type="text" 
-            placeholder="Search Project" 
-            className="toolbar-search"
+          <input
+            type="text"
+            placeholder="Search Project (⌘O)"
+            className="toolbar-search cursor-pointer"
+            readOnly
+            onFocus={() => setIsQuickSearchOpen(true)}
+            onClick={() => setIsQuickSearchOpen(true)}
           />
           <Search size={12} className="absolute left-2 text-[#8A877F]" />
         </div>
@@ -1346,8 +1356,17 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Quick Search / Go to document (⌘O) */}
+      {isQuickSearchOpen && (
+        <QuickSearch
+          docs={docs}
+          onSelect={navigateTo}
+          onClose={() => setIsQuickSearchOpen(false)}
+        />
+      )}
+
       {/* Modals */}
-      <SettingsModal 
+      <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={project?.settings || { target_word_count: 50000, session_target: 1000, deadline: null, composition_theme: 'sepia', theme: 'traditional', paper_width: 800, background_opacity: 0.9 }}
