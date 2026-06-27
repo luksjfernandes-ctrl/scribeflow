@@ -40,7 +40,8 @@ import {
   Edit3,
   Folder,
   File,
-  Target
+  Target,
+  BarChart3
 } from 'lucide-react';
 import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot, Comment } from './types';
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
@@ -54,6 +55,7 @@ import { Scrivenings } from './components/Scrivenings';
 import { CompositionMode } from './components/CompositionMode';
 import { QuickSearch } from './components/QuickSearch';
 import { TargetsModal } from './components/TargetsModal';
+import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './lib/supabase';
@@ -117,6 +119,7 @@ export default function App() {
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
   const [isTargetsOpen, setIsTargetsOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('notes');
   const sessionBaselineRef = React.useRef<number | null>(null);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
@@ -1286,6 +1289,10 @@ export default function App() {
             <Target size={16} />
           </button>
 
+          <button onClick={() => setIsStatsOpen(true)} className="macos-btn" title="Project Statistics">
+            <BarChart3 size={16} />
+          </button>
+
           <button onClick={() => setIsSettingsOpen(true)} className="macos-btn" title="Project Settings">
             <Settings size={16} />
           </button>
@@ -1466,6 +1473,9 @@ export default function App() {
           onClose={() => setIsQuickSearchOpen(false)}
         />
       )}
+
+      {/* Project Statistics */}
+      <StatisticsModal isOpen={isStatsOpen} onClose={() => setIsStatsOpen(false)} docs={docs} />
 
       {/* Project Targets */}
       <TargetsModal
