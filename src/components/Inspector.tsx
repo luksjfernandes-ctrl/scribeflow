@@ -9,16 +9,22 @@ import {
   Trash2,
   RotateCcw,
   ExternalLink,
+  MessageSquare,
 } from 'lucide-react';
-import { Doc, Snapshot, Bookmark, Keyword } from '../types';
+import { Doc, Snapshot, Bookmark, Keyword, Comment } from '../types';
 import { format } from 'date-fns';
 
-type InspectorTab = 'notes' | 'bookmarks' | 'metadata' | 'snapshots';
+export type InspectorTab = 'notes' | 'bookmarks' | 'metadata' | 'snapshots' | 'comments';
 
 interface InspectorProps {
   doc: Doc | null;
+  tab: InspectorTab;
+  onTabChange: (tab: InspectorTab) => void;
   onUpdateMetadata: (id: string, metadata: Partial<Doc['metadata']>) => void;
   onRestoreSnapshot?: (snapshot: Snapshot) => void;
+  onUpdateComment?: (id: string, text: string) => void;
+  onDeleteComment?: (id: string) => void;
+  onSelectComment?: (id: string) => void;
 }
 
 const KEYWORD_PALETTE = ['#E05050', '#E08030', '#D0B020', '#40A040', '#4070D0', '#8040D0', '#0F9B8E'];
@@ -44,9 +50,16 @@ const wordCount = (html: string) => {
   return text ? text.split(' ').length : 0;
 };
 
-export function Inspector({ doc, onUpdateMetadata, onRestoreSnapshot }: InspectorProps) {
-  const [tab, setTab] = useState<InspectorTab>('notes');
-
+export function Inspector({
+  doc,
+  tab,
+  onTabChange,
+  onUpdateMetadata,
+  onRestoreSnapshot,
+  onUpdateComment,
+  onDeleteComment,
+  onSelectComment,
+}: InspectorProps) {
   // Local form state for the various "add" inputs
   const [keywordDraft, setKeywordDraft] = useState('');
   const [bookmarkTitle, setBookmarkTitle] = useState('');
@@ -69,6 +82,7 @@ export function Inspector({ doc, onUpdateMetadata, onRestoreSnapshot }: Inspecto
   const keywords: Keyword[] = metadata.keywords || [];
   const bookmarks: Bookmark[] = metadata.bookmarks || [];
   const snapshots: Snapshot[] = metadata.snapshots || [];
+  const comments: Comment[] = metadata.comments || [];
   const customMetadata: Record<string, string> = metadata.custom_metadata || {};
 
   /* ---------------------------- Keywords ---------------------------- */
@@ -141,6 +155,7 @@ export function Inspector({ doc, onUpdateMetadata, onRestoreSnapshot }: Inspecto
     { id: 'notes', icon: <StickyNote size={14} />, title: 'Synopsis & Notes' },
     { id: 'bookmarks', icon: <BookmarkIcon size={14} />, title: 'Bookmarks' },
     { id: 'metadata', icon: <Info size={14} />, title: 'Metadata & Keywords' },
+    { id: 'comments', icon: <MessageSquare size={14} />, title: 'Comments' },
     { id: 'snapshots', icon: <Camera size={14} />, title: 'Snapshots' },
   ];
 
@@ -153,7 +168,7 @@ export function Inspector({ doc, onUpdateMetadata, onRestoreSnapshot }: Inspecto
             key={t.id}
             className={`inspector-tab${tab === t.id ? ' active' : ''}`}
             title={t.title}
-            onClick={() => setTab(t.id)}
+            onClick={() => onTabChange(t.id)}
           >
             {t.icon}
           </button>
@@ -362,6 +377,26 @@ export function Inspector({ doc, onUpdateMetadata, onRestoreSnapshot }: Inspecto
                   onUpdateMetadata(doc.id, { target_word_count: parseInt(e.target.value) || 0 })
                 }
               />
+              {(metadata.target_word_count || 0) > 0 &&
+                (() => {
+                  const words = wordCount(doc.content);
+                  const target = metadata.target_word_count;
+                  const pct = Math.min(100, Math.round((words / target) * 100));
+                  return (
+                    <div className="px-3 pt-2">
+                      <div className="h-1.5 rounded-full bg-black/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${pct}%`, backgroundColor: pct >= 100 ? '#40A040' : '#5B7A3D' }}
+                        />
+                      </div>
+                      <div className="mt-1 flex justify-between text-[10px] text-text-secondary">
+                        <span>{words} words</span>
+                        <span>{pct}%</span>
+                      </div>
+                    </div>
+                  );
+                })()}
             </div>
 
             {/* Custom metadata */}
@@ -473,6 +508,58 @@ export function Inspector({ doc, onUpdateMetadata, onRestoreSnapshot }: Inspecto
                       </button>
                     </div>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ========================== COMMENTS ========================== */}
+        {tab === 'comments' && (
+          <div className="py-2">
+            <div className="inspector-section-header">COMMENTS</div>
+            <div className="px-3 space-y-2">
+              {comments.length === 0 && (
+                <p className="text-[11px] italic text-text-secondary opacity-60 py-2">
+                  Select text in the editor and click the comment button to annotate it.
+                </p>
+              )}
+              {comments.map((c) => (
+                <div
+                  key={c.id}
+                  className="group rounded-md border border-[#D4C78A] bg-[#FFFDE8] overflow-hidden"
+                  style={{ borderLeft: `3px solid ${c.color || '#FFD66B'}` }}
+                >
+                  <div className="flex items-start justify-between gap-2 px-2.5 pt-2">
+                    <button
+                      className="min-w-0 flex-1 text-left"
+                      title="Jump to comment in the text"
+                      onClick={() => onSelectComment?.(c.id)}
+                    >
+                      {c.quote && (
+                        <span className="block truncate text-[11px] italic text-[#7A6A2A]">
+                          “{c.quote}”
+                        </span>
+                      )}
+                      <span className="block text-[9px] uppercase tracking-wider text-text-secondary">
+                        {c.author} · {format(c.timestamp, 'MMM d, HH:mm')}
+                      </span>
+                    </button>
+                    <button
+                      className="shrink-0 text-text-secondary opacity-0 group-hover:opacity-100 hover:text-[#E05050]"
+                      title="Delete comment"
+                      onClick={() => onDeleteComment?.(c.id)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                  <textarea
+                    className="w-full bg-transparent px-2.5 py-1.5 text-[12px] text-[#3A3A3A] outline-none resize-none scrivener-scrollbar"
+                    rows={2}
+                    placeholder="Add a comment…"
+                    value={c.text}
+                    onChange={(e) => onUpdateComment?.(c.id, e.target.value)}
+                  />
                 </div>
               ))}
             </div>

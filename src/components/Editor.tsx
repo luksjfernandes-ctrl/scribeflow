@@ -12,7 +12,8 @@ import {
   Heading2,
   List,
   ListOrdered,
-  Highlighter
+  Highlighter,
+  MessageSquarePlus
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -28,10 +29,35 @@ interface EditorProps {
   onZoomChange: (zoom: number) => void;
   externalEditor?: TiptapEditor | null;
   onSubtitleChange?: (subtitle: string) => void;
+  onAddComment?: (id: string, quote: string) => void;
 }
 
-const FormatBar = ({ editor }: { editor: TiptapEditor | null }) => {
+const uid = () => {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch {
+    /* noop */
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
+const FormatBar = ({
+  editor,
+  onAddComment,
+}: {
+  editor: TiptapEditor | null;
+  onAddComment?: (id: string, quote: string) => void;
+}) => {
   if (!editor) return null;
+
+  const addComment = () => {
+    const { from, to } = editor.state.selection;
+    if (from === to) return; // require a selection
+    const quote = editor.state.doc.textBetween(from, to, ' ').trim();
+    const id = uid();
+    editor.chain().focus().setComment(id).run();
+    onAddComment?.(id, quote);
+  };
 
   return (
     <div className="format-bar">
@@ -120,6 +146,16 @@ const FormatBar = ({ editor }: { editor: TiptapEditor | null }) => {
       >
         <Highlighter size={14} />
       </button>
+
+      <div className="w-px h-4 bg-[#C8C5BD] mx-1" />
+
+      <button
+        onClick={addComment}
+        className={cn("format-btn", editor.isActive('comment') && "active")}
+        title="Add comment to selection"
+      >
+        <MessageSquarePlus size={14} />
+      </button>
     </div>
   );
 };
@@ -133,7 +169,8 @@ export function Editor({
   zoom, 
   onZoomChange,
   externalEditor,
-  onSubtitleChange
+  onSubtitleChange,
+  onAddComment
 }: EditorProps) {
   const editor = externalEditor;
 
@@ -150,7 +187,7 @@ export function Editor({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <FormatBar editor={editor} />
+      <FormatBar editor={editor} onAddComment={onAddComment} />
       
       <div className="editor-writing-area scrivener-scrollbar">
         <div 

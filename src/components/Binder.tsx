@@ -223,6 +223,18 @@ function SortableBinderItem({
         )}
 
         <div className="flex items-center gap-2">
+          {(doc.metadata?.keywords?.length ?? 0) > 0 && (
+            <div className="flex items-center gap-0.5 shrink-0">
+              {doc.metadata.keywords.slice(0, 3).map((kw) => (
+                <span
+                  key={kw.text}
+                  className="w-2 h-2 rounded-sm"
+                  style={{ backgroundColor: kw.color }}
+                  title={kw.text}
+                />
+              ))}
+            </div>
+          )}
           {wordCount > 0 && (
             <span className="text-[10px] text-on-surface-variant/60 font-mono opacity-0 group-hover:opacity-100">{wordCount}</span>
           )}

@@ -15,6 +15,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
 import CharacterCount from '@tiptap/extension-character-count';
 import { ParagraphFocus } from './extensions/paragraphFocus';
+import { CommentMark } from './extensions/commentMark';
 import ProjectsModal from './components/ProjectsModal';
 import { 
   Layout, 
@@ -40,12 +41,12 @@ import {
   Folder,
   File
 } from 'lucide-react';
-import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot } from './types';
+import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot, Comment } from './types';
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
 import { arrayMove } from '@dnd-kit/sortable';
-import { Inspector } from './components/Inspector';
+import { Inspector, InspectorTab } from './components/Inspector';
 import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
 import { Scrivenings } from './components/Scrivenings';
@@ -113,6 +114,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>('notes');
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isBinderOpen, setIsBinderOpen] = useState(true);
   const [isCompositionMode, setIsCompositionMode] = useState(false);
@@ -904,6 +906,7 @@ export default function App() {
       }),
       CharacterCount,
       ParagraphFocus,
+      CommentMark,
     ],
     onUpdate: ({ editor }) => {
       if (selectedDoc) {
@@ -972,6 +975,56 @@ export default function App() {
       globalEditor.commands.setContent(snapshot.content);
     }
     handleUpdateDoc(selectedDoc.id, { title: snapshot.title, content: snapshot.content });
+  };
+
+  const handleAddComment = (id: string, quote: string) => {
+    if (!selectedDoc) return;
+    const comment: Comment = {
+      id,
+      author: user?.user_metadata?.full_name || user?.email || 'You',
+      text: '',
+      timestamp: Date.now(),
+      quote,
+      color: '#FFD66B',
+    };
+    const comments = [...(selectedDoc.metadata.comments || []), comment];
+    handleUpdateMetadata(selectedDoc.id, { comments });
+    setInspectorTab('comments');
+    setIsInspectorOpen(true);
+  };
+
+  const handleUpdateComment = (id: string, text: string) => {
+    if (!selectedDoc) return;
+    const comments = (selectedDoc.metadata.comments || []).map((c) =>
+      c.id === id ? { ...c, text } : c
+    );
+    handleUpdateMetadata(selectedDoc.id, { comments });
+  };
+
+  const handleDeleteComment = (id: string) => {
+    if (!selectedDoc) return;
+    if (globalEditor) {
+      globalEditor.chain().focus().removeComment(id).run();
+    }
+    const comments = (selectedDoc.metadata.comments || []).filter((c) => c.id !== id);
+    handleUpdateMetadata(selectedDoc.id, { comments });
+  };
+
+  const handleSelectComment = (id: string) => {
+    if (!globalEditor) return;
+    const { state } = globalEditor;
+    const markType = state.schema.marks.comment;
+    if (!markType) return;
+    let range: { from: number; to: number } | null = null;
+    state.doc.descendants((node, pos) => {
+      if (range || !node.isText) return;
+      if (node.marks.some((m) => m.type === markType && m.attrs.commentId === id)) {
+        range = { from: pos, to: pos + node.nodeSize };
+      }
+    });
+    if (range) {
+      globalEditor.chain().focus().setTextSelection(range).scrollIntoView().run();
+    }
   };
 
   const toggleFolder = (id: string) => {
@@ -1275,6 +1328,7 @@ export default function App() {
                         zoom={zoom}
                         onZoomChange={setZoom}
                         externalEditor={globalEditor}
+                        onAddComment={handleAddComment}
                       />
                     )
                   )}
@@ -1337,8 +1391,13 @@ export default function App() {
             />
             <Inspector
               doc={selectedDoc}
+              tab={inspectorTab}
+              onTabChange={setInspectorTab}
               onUpdateMetadata={handleUpdateMetadata}
               onRestoreSnapshot={handleRestoreSnapshot}
+              onUpdateComment={handleUpdateComment}
+              onDeleteComment={handleDeleteComment}
+              onSelectComment={handleSelectComment}
             />
           </div>
         )}
