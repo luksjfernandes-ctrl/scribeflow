@@ -44,26 +44,33 @@ ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.docs ENABLE ROW LEVEL SECURITY;
 
 -- 5. Create Policies for Projects
-CREATE POLICY "Users can view their own projects" 
-ON public.projects FOR SELECT 
+-- Policies are dropped first so this script is idempotent and can be safely
+-- re-run (e.g. when restoring a paused Supabase project).
+DROP POLICY IF EXISTS "Users can view their own projects" ON public.projects;
+CREATE POLICY "Users can view their own projects"
+ON public.projects FOR SELECT
 USING (auth.uid() = owner_id);
 
-CREATE POLICY "Users can insert their own projects" 
-ON public.projects FOR INSERT 
+DROP POLICY IF EXISTS "Users can insert their own projects" ON public.projects;
+CREATE POLICY "Users can insert their own projects"
+ON public.projects FOR INSERT
 WITH CHECK (auth.uid() = owner_id);
 
-CREATE POLICY "Users can update their own projects" 
-ON public.projects FOR UPDATE 
+DROP POLICY IF EXISTS "Users can update their own projects" ON public.projects;
+CREATE POLICY "Users can update their own projects"
+ON public.projects FOR UPDATE
 USING (auth.uid() = owner_id);
 
-CREATE POLICY "Users can delete their own projects" 
-ON public.projects FOR DELETE 
+DROP POLICY IF EXISTS "Users can delete their own projects" ON public.projects;
+CREATE POLICY "Users can delete their own projects"
+ON public.projects FOR DELETE
 USING (auth.uid() = owner_id);
 
 -- 6. Create Policies for Docs
 -- Note: We check if the user owns the project this doc belongs to
-CREATE POLICY "Users can view docs in their projects" 
-ON public.docs FOR SELECT 
+DROP POLICY IF EXISTS "Users can view docs in their projects" ON public.docs;
+CREATE POLICY "Users can view docs in their projects"
+ON public.docs FOR SELECT
 USING (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -72,8 +79,9 @@ USING (
     )
 );
 
-CREATE POLICY "Users can insert docs in their projects" 
-ON public.docs FOR INSERT 
+DROP POLICY IF EXISTS "Users can insert docs in their projects" ON public.docs;
+CREATE POLICY "Users can insert docs in their projects"
+ON public.docs FOR INSERT
 WITH CHECK (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -82,8 +90,9 @@ WITH CHECK (
     )
 );
 
-CREATE POLICY "Users can update docs in their projects" 
-ON public.docs FOR UPDATE 
+DROP POLICY IF EXISTS "Users can update docs in their projects" ON public.docs;
+CREATE POLICY "Users can update docs in their projects"
+ON public.docs FOR UPDATE
 USING (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -92,8 +101,9 @@ USING (
     )
 );
 
-CREATE POLICY "Users can delete docs in their projects" 
-ON public.docs FOR DELETE 
+DROP POLICY IF EXISTS "Users can delete docs in their projects" ON public.docs;
+CREATE POLICY "Users can delete docs in their projects"
+ON public.docs FOR DELETE
 USING (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -103,8 +113,19 @@ USING (
 );
 
 -- 7. Realtime setup
-ALTER PUBLICATION supabase_realtime ADD TABLE public.projects;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.docs;
+-- Wrapped so re-running the script doesn't error when the tables are already
+-- members of the publication.
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.projects;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE public.docs;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- 8. Stored Procedure for new project structural generation
 CREATE OR REPLACE FUNCTION create_project_structure(p_project_id TEXT)
