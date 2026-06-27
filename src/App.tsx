@@ -39,7 +39,8 @@ import {
   Trash2,
   Edit3,
   Folder,
-  File
+  File,
+  Target
 } from 'lucide-react';
 import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot, Comment } from './types';
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
@@ -52,6 +53,7 @@ import { Outliner } from './components/Outliner';
 import { Scrivenings } from './components/Scrivenings';
 import { CompositionMode } from './components/CompositionMode';
 import { QuickSearch } from './components/QuickSearch';
+import { TargetsModal } from './components/TargetsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase } from './lib/supabase';
@@ -114,7 +116,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('editor');
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
+  const [isTargetsOpen, setIsTargetsOpen] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('notes');
+  const sessionBaselineRef = React.useRef<number | null>(null);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isBinderOpen, setIsBinderOpen] = useState(true);
   const [isCompositionMode, setIsCompositionMode] = useState(false);
@@ -551,9 +555,35 @@ export default function App() {
   const { manuscript: manuscriptFolder, trash: trashFolder, characters: charactersFolder, places: placesFolder, research: researchFolder } = useStructuralFolders(docs);
 
   // Derived State
-  const selectedDoc = useMemo(() => 
+  const selectedDoc = useMemo(() =>
     docs.find(d => d.id === selectedDocId) || null
   , [docs, selectedDocId]);
+
+  // Total manuscript word count across all documents in the project.
+  const projectWordCount = useMemo(
+    () =>
+      docs.reduce(
+        (acc, doc) =>
+          acc + (doc.content?.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length || 0),
+        0
+      ),
+    [docs]
+  );
+
+  // Reset the session baseline whenever the active project changes.
+  useEffect(() => {
+    sessionBaselineRef.current = null;
+  }, [activeProjectId]);
+
+  // Capture the baseline once documents for the current project have loaded.
+  useEffect(() => {
+    if (sessionBaselineRef.current === null && docs.length > 0) {
+      sessionBaselineRef.current = projectWordCount;
+    }
+  }, [docs.length, projectWordCount]);
+
+  const sessionWords =
+    sessionBaselineRef.current === null ? 0 : Math.max(0, projectWordCount - sessionBaselineRef.current);
 
   const currentFolderDocs = useMemo(() => {
     if (!selectedDoc) return [];
@@ -1027,6 +1057,15 @@ export default function App() {
     }
   };
 
+  const handleUpdateSettings = async (settings: Partial<Project['settings']>) => {
+    if (!project) return;
+    const updatedSettings = { ...project.settings, ...settings };
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, settings: updatedSettings } : p)));
+    if (user) {
+      await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
+    }
+  };
+
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
     if (newExpanded.has(id)) {
@@ -1243,6 +1282,10 @@ export default function App() {
             <Download size={16} />
           </button>
           
+          <button onClick={() => setIsTargetsOpen(true)} className="macos-btn" title="Project Targets">
+            <Target size={16} />
+          </button>
+
           <button onClick={() => setIsSettingsOpen(true)} className="macos-btn" title="Project Settings">
             <Settings size={16} />
           </button>
@@ -1424,19 +1467,22 @@ export default function App() {
         />
       )}
 
+      {/* Project Targets */}
+      <TargetsModal
+        isOpen={isTargetsOpen}
+        onClose={() => setIsTargetsOpen(false)}
+        settings={project?.settings || { target_word_count: 50000, session_target: 1000, deadline: null, composition_theme: 'sepia', theme: 'traditional', paper_width: 800, background_opacity: 0.9 }}
+        projectWords={projectWordCount}
+        sessionWords={sessionWords}
+        onUpdateSettings={handleUpdateSettings}
+      />
+
       {/* Modals */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         settings={project?.settings || { target_word_count: 50000, session_target: 1000, deadline: null, composition_theme: 'sepia', theme: 'traditional', paper_width: 800, background_opacity: 0.9 }}
-        onUpdateSettings={async (settings) => {
-          if (!project) return;
-          const updatedSettings = { ...project.settings, ...settings };
-          setProjects(prev => prev.map(p => p.id === project.id ? { ...p, settings: updatedSettings } : p));
-          if (user) {
-            await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
-          }
-        }}
+        onUpdateSettings={handleUpdateSettings}
       />
       <ExportModal 
         isOpen={isExportOpen}
@@ -1544,7 +1590,35 @@ export default function App() {
         <div className="flex items-center">
           <span className="opacity-70">PROJECT: <span className="font-bold text-[#436127]">{project?.name || 'Loading...'}</span></span>
           <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3" />
-          <span className="opacity-70">WORDS: <span className="font-bold text-[#436127]">{docs.reduce((acc, doc) => acc + (doc.content?.replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length || 0), 0)}</span></span>
+          <button
+            className="flex items-center gap-2 hover:text-[#436127] transition-colors"
+            title="Open Project Targets"
+            onClick={() => setIsTargetsOpen(true)}
+          >
+            <span className="opacity-70">WORDS: <span className="font-bold text-[#436127]">{projectWordCount.toLocaleString()}</span></span>
+            {(project?.settings?.target_word_count ?? 0) > 0 && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-16 h-1.5 rounded-full bg-black/15 overflow-hidden inline-block align-middle">
+                  <span
+                    className="block h-full rounded-full"
+                    style={{
+                      width: `${Math.min(100, Math.round((projectWordCount / project!.settings.target_word_count) * 100))}%`,
+                      backgroundColor:
+                        projectWordCount >= project!.settings.target_word_count ? '#40A040' : '#5B7A3D',
+                    }}
+                  />
+                </span>
+                <span className="font-bold text-[#436127]">
+                  {Math.min(100, Math.round((projectWordCount / project!.settings.target_word_count) * 100))}%
+                </span>
+              </span>
+            )}
+            {(project?.settings?.session_target ?? 0) > 0 && (
+              <span className="opacity-70">
+                · SESSION: <span className="font-bold text-[#436127]">{sessionWords.toLocaleString()}/{project!.settings.session_target.toLocaleString()}</span>
+              </span>
+            )}
+          </button>
         </div>
         <div className="flex items-center">
           <span className="opacity-70">{selectedDoc ? `SELECTED: ${selectedDoc.title}` : 'NO SELECTION'}</span>
