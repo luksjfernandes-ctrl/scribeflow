@@ -40,7 +40,7 @@ import {
   Folder,
   File
 } from 'lucide-react';
-import { Doc, Project, ViewMode, DocumentType, DocumentMetadata } from './types';
+import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot } from './types';
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
@@ -957,6 +957,16 @@ export default function App() {
     }
   };
 
+  const handleRestoreSnapshot = (snapshot: Snapshot) => {
+    if (!selectedDoc) return;
+    // Push the snapshot content straight into the live editor; the sync effect
+    // only runs on doc.id changes, so restoring the same doc needs this.
+    if (globalEditor) {
+      globalEditor.commands.setContent(snapshot.content);
+    }
+    handleUpdateDoc(selectedDoc.id, { title: snapshot.title, content: snapshot.content });
+  };
+
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
     if (newExpanded.has(id)) {
@@ -1315,9 +1325,10 @@ export default function App() {
               onMouseDown={startResizingInspector}
               className="splitter"
             />
-            <Inspector 
+            <Inspector
               doc={selectedDoc}
               onUpdateMetadata={handleUpdateMetadata}
+              onRestoreSnapshot={handleRestoreSnapshot}
             />
           </div>
         )}
