@@ -127,31 +127,9 @@ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
--- 8. Stored Procedure for new project structural generation
-CREATE OR REPLACE FUNCTION create_project_structure(p_project_id TEXT)
-RETURNS void AS $$
-DECLARE
-  v_manuscript_id TEXT;
-  v_characters_id TEXT;
-  v_places_id TEXT;
-  v_research_id TEXT;
-  v_trash_id TEXT;
-BEGIN
-  -- Criar pasta Manuscript
-  INSERT INTO public.docs (project_id, title, type, parent_id, "order", folder_role)
-  VALUES (p_project_id, 'Manuscript', 'folder', NULL, 0, 'manuscript')
-  RETURNING id INTO v_manuscript_id;
-
-  -- Criar pastas estruturais restantes
-  INSERT INTO public.docs (project_id, title, type, parent_id, "order", folder_role) VALUES
-    (p_project_id, 'Characters', 'folder', NULL, 1, 'characters'),
-    (p_project_id, 'Places',     'folder', NULL, 2, 'places'),
-    (p_project_id, 'Research',   'folder', NULL, 3, 'research'),
-    (p_project_id, 'Trash',      'folder', NULL, 4, 'trash');
-    
-  -- Criar primeiro capítulo dentro de Manuscript
-  INSERT INTO public.docs (project_id, title, type, parent_id, "order", content)
-  VALUES (p_project_id, 'Meeting at Orson Lake', 'text', v_manuscript_id, 0, '<h1>The Meeting at Orson Lake</h1><p>Start writing here...</p>');
-
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- 8. Remoção da RPC create_project_structure (issue #7)
+-- A função era SECURITY DEFINER e aceitava qualquer p_project_id sem checar
+-- ownership (auth.uid() = projects.owner_id), contornando a RLS de docs.
+-- O cliente nunca a chama (a estrutura inicial é gerada em generateInitialDocs,
+-- no App.tsx), então a superfície de ataque é removida em vez de corrigida.
+DROP FUNCTION IF EXISTS public.create_project_structure(TEXT);
