@@ -123,7 +123,12 @@ export default function App() {
   const sessionBaselineRef = React.useRef<number | null>(null);
   const [isProjectsModalOpen, setIsProjectsModalOpen] = useState(false);
   const [isBinderOpen, setIsBinderOpen] = useState(true);
-  const [isCompositionMode, setIsCompositionMode] = useState(false);
+  /** 'closing' existe porque o AnimatePresence mantem o overlay montado durante
+   *  a animacao de saida. Enquanto ele nao desmontar de fato, ele segue dono do
+   *  view.dom do TipTap e o editor principal NAO pode remontar o seu
+   *  EditorContent — senao inicializa vazio. */
+  const [composeState, setComposeState] = useState<'closed' | 'open' | 'closing'>('closed');
+  const isCompositionMode = composeState === 'open';
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -332,7 +337,7 @@ export default function App() {
         { label: 'Toggle Binder', shortcut: '⌥⌘B', onClick: () => setIsBinderOpen(!isBinderOpen) },
         { label: 'Toggle Inspector', shortcut: '⌥⌘I', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
         { divider: true },
-        { label: 'Enter Composition Mode', shortcut: '⌥⌘F', onClick: () => setIsCompositionMode(true) },
+        { label: 'Enter Composition Mode', shortcut: '⌥⌘F', onClick: () => setComposeState('open') },
       ]
     },
     {
@@ -963,7 +968,7 @@ export default function App() {
       if (e.key === 'F11' || (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey))) {
         if (selectedDoc && selectedDoc.type === 'text') {
           e.preventDefault();
-          setIsCompositionMode(true);
+          setComposeState('open');
         }
       }
       // Cmd/Ctrl+O — Quick Search / Go to document
@@ -1272,7 +1277,7 @@ export default function App() {
         {/* Action Buttons */}
         <div className="flex items-center gap-1">
           <button 
-            onClick={() => setIsCompositionMode(true)}
+            onClick={() => setComposeState('open')}
             className="composition-btn mr-2 flex items-center gap-1.5"
           >
             <PenTool size={14} />
@@ -1377,7 +1382,7 @@ export default function App() {
                         onZoomChange={setZoom}
                         externalEditor={globalEditor}
                         onAddComment={handleAddComment}
-                        isCompositionMode={isCompositionMode}
+                        suspendEditorContent={composeState !== 'closed'}
                       />
                     )
                   )}
@@ -1453,13 +1458,13 @@ export default function App() {
       </main>
 
       {/* Composition Mode Overlay */}
-      <AnimatePresence>
+      <AnimatePresence onExitComplete={() => setComposeState('closed')}>
         {isCompositionMode && selectedDoc && selectedDoc.type === 'text' && (
           <CompositionMode 
             key="compose-mode"
             editor={globalEditor}
             title={selectedDoc.title}
-            onExit={() => setIsCompositionMode(false)}
+            onExit={() => setComposeState('closing')}
           />
         )}
       </AnimatePresence>
