@@ -15,3 +15,7 @@ coverage/
 
 # Vercel
 .vercel/
+
+# Relatorio de auditoria: documenta caminhos de exploracao e o repo e publico.
+# Manter fora do versionamento (remova esta linha quando os achados estiverem fechados).
+docs/security-audit/

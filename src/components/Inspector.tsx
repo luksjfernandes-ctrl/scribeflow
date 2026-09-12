@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Doc, Snapshot, Bookmark, Keyword, Comment } from '../types';
 import { format } from 'date-fns';
+import { safeUrl } from '../utils/sanitize';
 
 export type InspectorTab = 'notes' | 'bookmarks' | 'metadata' | 'snapshots' | 'comments';
 
@@ -106,7 +107,7 @@ export function Inspector({
   const addBookmark = () => {
     const title = bookmarkTitle.trim();
     if (!title) return;
-    const url = bookmarkUrl.trim();
+    const url = safeUrl(bookmarkUrl);
     const bm: Bookmark = { id: uid(), title, ...(url ? { url } : {}) };
     onUpdateMetadata(doc.id, { bookmarks: [...bookmarks, bm] });
     setBookmarkTitle('');
@@ -264,9 +265,9 @@ export function Inspector({
                 >
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12px] text-[#3A3A3A] font-medium">{bm.title}</div>
-                    {bm.url && (
+                    {safeUrl(bm.url) && (
                       <a
-                        href={bm.url}
+                        href={safeUrl(bm.url)!}
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center gap-1 truncate text-[10px] text-[#4070D0] hover:underline"

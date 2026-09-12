@@ -28,3 +28,23 @@ export const sanitizeColor = (color: string | undefined, fallback: string): stri
   if (HEX_COLOR.test(color) || NAMED_COLOR.test(color)) return color;
   return fallback;
 };
+
+/** Esquemas aceitos em href. Bloqueia javascript:, data:, vbscript: e afins.
+ *  Valida na renderizacao E na gravacao: o dado ja salvo pode ser antigo. */
+const SAFE_SCHEMES = ['http:', 'https:', 'mailto:'];
+
+export const safeUrl = (url: string | undefined): string | null => {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  try {
+    // Sem base: URL relativa lanca, e e' isso que queremos para href externo.
+    const parsed = new URL(trimmed);
+    return SAFE_SCHEMES.includes(parsed.protocol) ? trimmed : null;
+  } catch {
+    // Nao parseavel como URL absoluta: trata como http para nao exigir que o
+    // usuario digite o esquema, mas so se nao houver ":" (que indicaria esquema).
+    if (trimmed.includes(':')) return null;
+    return `https://${trimmed}`;
+  }
+};
