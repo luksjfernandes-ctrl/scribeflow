@@ -1,3 +1,5 @@
+import type { IncomingMessage, ServerResponse } from 'node:http'
+
 /**
  * Mantém o projeto Supabase acordado.
  *
@@ -10,39 +12,45 @@
  * uma rota protegida por CRON_SECRET. A alternativa (GitHub Action agendada)
  * foi descartada porque o GitHub desabilita schedules em repos sem commits
  * por 60 dias — exatamente o cenário de um app dormente.
+ *
+ * Assinatura Node (req, res), não Web API: num projeto Vite, as funções em
+ * /api rodam no runtime Node clássico, onde `req.headers` é um objeto e não
+ * tem `.get()`.
  */
 
-export const config = { runtime: 'nodejs' }
+function send(res: ServerResponse, status: number, body: unknown): void {
+  res.statusCode = status
+  res.setHeader('content-type', 'application/json')
+  res.end(JSON.stringify(body))
+}
 
-export default async function handler(req: Request): Promise<Response> {
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   const secret = process.env.CRON_SECRET
-  const auth = req.headers.get('authorization')
-  if (secret && auth !== `Bearer ${secret}`) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+    return send(res, 401, { error: 'Unauthorized' })
   }
 
   const url = process.env.VITE_SUPABASE_URL
   const key = process.env.VITE_SUPABASE_ANON_KEY
   if (!url || !key) {
-    return Response.json(
-      { error: 'VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY ausentes' },
-      { status: 500 },
-    )
+    return send(res, 500, {
+      error: 'VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY ausentes',
+    })
   }
 
   // Consulta que realmente toca o Postgres. A RLS devolve [] para anônimo;
   // o que conta como atividade no projeto é o 200. Um GET em /rest/v1/ cru
   // devolve 401 e não serviria.
-  const res = await fetch(`${url}/rest/v1/projects?select=id&limit=1`, {
+  const r = await fetch(`${url}/rest/v1/projects?select=id&limit=1`, {
     headers: { apikey: key, Authorization: `Bearer ${key}` },
   })
 
-  if (!res.ok) {
-    return Response.json(
-      { ok: false, status: res.status, body: await res.text() },
-      { status: 502 },
-    )
+  if (!r.ok) {
+    return send(res, 502, { ok: false, status: r.status, body: await r.text() })
   }
 
-  return Response.json({ ok: true, checkedAt: new Date().toISOString() })
+  return send(res, 200, { ok: true, checkedAt: new Date().toISOString() })
 }
