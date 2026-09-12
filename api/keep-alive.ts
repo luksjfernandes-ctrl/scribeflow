@@ -28,8 +28,14 @@ export default async function handler(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
-  const secret = process.env.CRON_SECRET
-  if (secret && req.headers.authorization !== `Bearer ${secret}`) {
+  // .trim() dos dois lados: valor gravado via stdin pode carregar \n, e o
+  // header pode vir com espaco. Sem isso a comparacao falha silenciosamente.
+  const secret = process.env.CRON_SECRET?.trim()
+  const given = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim()
+  if (secret && given !== secret) {
+    console.log(
+      `[keep-alive] token nao confere (len esperado=${secret.length}, recebido=${given?.length ?? 0})`,
+    )
     return send(res, 401, { error: 'Unauthorized' })
   }
 
