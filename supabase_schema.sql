@@ -44,33 +44,26 @@ ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.docs ENABLE ROW LEVEL SECURITY;
 
 -- 5. Create Policies for Projects
--- Policies are dropped first so this script is idempotent and can be safely
--- re-run (e.g. when restoring a paused Supabase project).
-DROP POLICY IF EXISTS "Users can view their own projects" ON public.projects;
-CREATE POLICY "Users can view their own projects"
-ON public.projects FOR SELECT
+CREATE POLICY "Users can view their own projects" 
+ON public.projects FOR SELECT 
 USING (auth.uid() = owner_id);
 
-DROP POLICY IF EXISTS "Users can insert their own projects" ON public.projects;
-CREATE POLICY "Users can insert their own projects"
-ON public.projects FOR INSERT
+CREATE POLICY "Users can insert their own projects" 
+ON public.projects FOR INSERT 
 WITH CHECK (auth.uid() = owner_id);
 
-DROP POLICY IF EXISTS "Users can update their own projects" ON public.projects;
-CREATE POLICY "Users can update their own projects"
-ON public.projects FOR UPDATE
+CREATE POLICY "Users can update their own projects" 
+ON public.projects FOR UPDATE 
 USING (auth.uid() = owner_id);
 
-DROP POLICY IF EXISTS "Users can delete their own projects" ON public.projects;
-CREATE POLICY "Users can delete their own projects"
-ON public.projects FOR DELETE
+CREATE POLICY "Users can delete their own projects" 
+ON public.projects FOR DELETE 
 USING (auth.uid() = owner_id);
 
 -- 6. Create Policies for Docs
 -- Note: We check if the user owns the project this doc belongs to
-DROP POLICY IF EXISTS "Users can view docs in their projects" ON public.docs;
-CREATE POLICY "Users can view docs in their projects"
-ON public.docs FOR SELECT
+CREATE POLICY "Users can view docs in their projects" 
+ON public.docs FOR SELECT 
 USING (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -79,9 +72,8 @@ USING (
     )
 );
 
-DROP POLICY IF EXISTS "Users can insert docs in their projects" ON public.docs;
-CREATE POLICY "Users can insert docs in their projects"
-ON public.docs FOR INSERT
+CREATE POLICY "Users can insert docs in their projects" 
+ON public.docs FOR INSERT 
 WITH CHECK (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -90,9 +82,8 @@ WITH CHECK (
     )
 );
 
-DROP POLICY IF EXISTS "Users can update docs in their projects" ON public.docs;
-CREATE POLICY "Users can update docs in their projects"
-ON public.docs FOR UPDATE
+CREATE POLICY "Users can update docs in their projects" 
+ON public.docs FOR UPDATE 
 USING (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -101,9 +92,8 @@ USING (
     )
 );
 
-DROP POLICY IF EXISTS "Users can delete docs in their projects" ON public.docs;
-CREATE POLICY "Users can delete docs in their projects"
-ON public.docs FOR DELETE
+CREATE POLICY "Users can delete docs in their projects" 
+ON public.docs FOR DELETE 
 USING (
     EXISTS (
         SELECT 1 FROM public.projects 
@@ -113,23 +103,53 @@ USING (
 );
 
 -- 7. Realtime setup
--- Wrapped so re-running the script doesn't error when the tables are already
--- members of the publication.
-DO $$
-BEGIN
-  ALTER PUBLICATION supabase_realtime ADD TABLE public.projects;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.projects;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.docs;
 
-DO $$
-BEGIN
-  ALTER PUBLICATION supabase_realtime ADD TABLE public.docs;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+-- 7.1 Validate metadata.folder_color server-side (defense against XSS in SVG icons).
+-- Accept only #RGB / #RRGGBB / #RRGGBBAA hex strings or simple named colors.
+ALTER TABLE public.docs
+  ADD CONSTRAINT docs_metadata_folder_color_safe
+  CHECK (
+    metadata->>'folder_color' IS NULL
+    OR metadata->>'folder_color' ~ '^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?([0-9A-Fa-f]{2})?$'
+    OR metadata->>'folder_color' ~ '^[a-zA-Z]{3,20}$'
+  );
 
--- 8. Remoção da RPC create_project_structure (issue #7)
--- A função era SECURITY DEFINER e aceitava qualquer p_project_id sem checar
--- ownership (auth.uid() = projects.owner_id), contornando a RLS de docs.
--- O cliente nunca a chama (a estrutura inicial é gerada em generateInitialDocs,
--- no App.tsx), então a superfície de ataque é removida em vez de corrigida.
-DROP FUNCTION IF EXISTS public.create_project_structure(TEXT);
+ALTER TABLE public.docs
+  ADD CONSTRAINT docs_metadata_label_color_safe
+  CHECK (
+    metadata->>'label_color' IS NULL
+    OR metadata->>'label_color' = 'transparent'
+    OR metadata->>'label_color' ~ '^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?([0-9A-Fa-f]{2})?$'
+    OR metadata->>'label_color' ~ '^[a-zA-Z]{3,20}$'
+  );
+
+-- 8. Stored Procedure for new project structural generation
+CREATE OR REPLACE FUNCTION create_project_structure(p_project_id TEXT)
+RETURNS void AS $$
+DECLARE
+  v_manuscript_id TEXT;
+  v_characters_id TEXT;
+  v_places_id TEXT;
+  v_research_id TEXT;
+  v_trash_id TEXT;
+BEGIN
+  -- Criar pasta Manuscript
+  INSERT INTO public.docs (project_id, title, type, parent_id, "order", folder_role)
+  VALUES (p_project_id, 'Manuscript', 'folder', NULL, 0, 'manuscript')
+  RETURNING id INTO v_manuscript_id;
+
+  -- Criar pastas estruturais restantes
+  INSERT INTO public.docs (project_id, title, type, parent_id, "order", folder_role) VALUES
+    (p_project_id, 'Characters', 'folder', NULL, 1, 'characters'),
+    (p_project_id, 'Places',     'folder', NULL, 2, 'places'),
+    (p_project_id, 'Research',   'folder', NULL, 3, 'research'),
+    (p_project_id, 'Trash',      'folder', NULL, 4, 'trash');
+    
+  -- Criar primeiro capítulo dentro de Manuscript
+  INSERT INTO public.docs (project_id, title, type, parent_id, "order", content)
+  VALUES (p_project_id, 'Meeting at Orson Lake', 'text', v_manuscript_id, 0, '<h1>The Meeting at Orson Lake</h1><p>Start writing here...</p>');
+
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
