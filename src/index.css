@@ -992,29 +992,20 @@
 }
 
 /* 7. COMPOSITION MODE */
+/* Esta regra tem a mesma especificidade das utilities do Tailwind aplicadas no
+   CompositionMode.tsx e e carregada depois, entao vence as classes do componente.
+   Era por isso que o texto ficava colado na margem esquerda: o align-items aqui
+   anulava o items-center de la. Mantidas as demais propriedades porque sao elas
+   que garantem o overlay fixo, opaco e acima da interface — o z-index das
+   utilities sozinho nao basta (verificado em producao). */
 .composition-overlay {
   position: fixed;
   inset: 0;
   z-index: 10000;
   background: rgba(10, 12, 16, 0.97);
   display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 60px;
-}
-
-.composition-editor {
-  width: 700px;
-  max-height: calc(100vh - 120px);
-  overflow-y: auto;
-  padding: 40px 60px;
-  font-family: "Palatino", "Georgia", serif;
-  font-size: 18px;
-  line-height: 1.8;
-  color: #D4D0C8;
-  background: transparent;
-  outline: none;
-  cursor: text;
+  flex-direction: column;
+  align-items: center;
 }
 
 /* 8. GLOBAL FOOTER */
