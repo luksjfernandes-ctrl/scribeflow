@@ -30,6 +30,10 @@ interface EditorProps {
   externalEditor?: TiptapEditor | null;
   onSubtitleChange?: (subtitle: string) => void;
   onAddComment?: (id: string, quote: string) => void;
+  /** O Modo de Composicao monta o MESMO editor no overlay. O TipTap so mantem
+   *  o view.dom em um lugar, entao enquanto o overlay estiver montado — incluindo
+   *  a animacao de saida — este EditorContent precisa ficar desmontado. */
+  suspendEditorContent?: boolean;
 }
 
 const uid = () => {
@@ -170,7 +174,8 @@ export function Editor({
   onZoomChange,
   externalEditor,
   onSubtitleChange,
-  onAddComment
+  onAddComment,
+  suspendEditorContent = false
 }: EditorProps) {
   const editor = externalEditor;
 
@@ -226,10 +231,17 @@ export function Editor({
             className="w-full text-sm font-serif italic text-[#999999] bg-transparent border-none focus:outline-none placeholder:opacity-60 mb-8 min-h-[1.5em] resize-none overflow-hidden"
             placeholder="Write a subtitle or epigraph..."
           />
-          <EditorContent 
-            editor={editor} 
-            className="prose prose-stone dark:prose-invert max-w-none focus:outline-none min-h-[500px]"
-          />
+          {/* O Modo de Composicao monta este mesmo editor no overlay. Manter os
+              dois EditorContent vivos faz o TipTap entregar o view.dom a apenas
+              um deles, e o overlay abre vazio. */}
+          {suspendEditorContent ? (
+            <div className="min-h-[500px]" aria-hidden="true" />
+          ) : (
+            <EditorContent 
+              editor={editor} 
+              className="prose prose-stone dark:prose-invert max-w-none focus:outline-none min-h-[500px]"
+            />
+          )}
         </div>
       </div>
 
