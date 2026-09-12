@@ -474,7 +474,7 @@ export default function App() {
             }
           }
         } else if (!error) {
-          console.log('[Supabase] No projects found, creating initial via RPC...');
+          console.log('[Supabase] No projects found, creating the initial project...');
           const userProjectId = crypto.randomUUID();
           const initialProject: Partial<Project> = { 
             id: userProjectId,
