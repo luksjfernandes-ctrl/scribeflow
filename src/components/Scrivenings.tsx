@@ -1,5 +1,6 @@
 import React from 'react';
 import { Doc } from '../types';
+import { sanitizeHtml } from '../utils/sanitize';
 
 interface ScriveningsProps {
   docs: Doc[];
@@ -29,7 +30,7 @@ export function Scrivenings({ docs }: ScriveningsProps) {
             
             <div 
               className="prose prose-stone max-w-none font-serif text-lg leading-relaxed text-[#1A1A1A]"
-              dangerouslySetInnerHTML={{ __html: doc.content || '<p class="italic opacity-30">Empty document</p>' }}
+              dangerouslySetInnerHTML={{ __html: doc.content ? sanitizeHtml(doc.content) : '<p class="italic opacity-30">Empty document</p>' }}
             />
             
             {index < textDocs.length - 1 && (

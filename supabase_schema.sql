@@ -133,3 +133,32 @@ END $$;
 -- O cliente nunca a chama (a estrutura inicial é gerada em generateInitialDocs,
 -- no App.tsx), então a superfície de ataque é removida em vez de corrigida.
 DROP FUNCTION IF EXISTS public.create_project_structure(TEXT);
+
+-- 9. Validacao das cores no servidor (defesa contra XSS via SVG inline)
+-- Aceita apenas #RGB / #RRGGBB / #RRGGBBAA ou nomes simples de cor.
+-- Envolvido em DO/EXCEPTION porque ADD CONSTRAINT nao aceita IF NOT EXISTS:
+-- sem isso, reexecutar o schema (como o README instrui) abortaria aqui.
+DO $$
+BEGIN
+  ALTER TABLE public.docs
+    ADD CONSTRAINT docs_metadata_folder_color_safe
+    CHECK (
+      metadata->>'folder_color' IS NULL
+      OR metadata->>'folder_color' ~ '^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?([0-9A-Fa-f]{2})?$'
+      OR metadata->>'folder_color' ~ '^[a-zA-Z]{3,20}$'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE public.docs
+    ADD CONSTRAINT docs_metadata_label_color_safe
+    CHECK (
+      metadata->>'label_color' IS NULL
+      OR metadata->>'label_color' = 'transparent'
+      OR metadata->>'label_color' ~ '^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?([0-9A-Fa-f]{2})?$'
+      OR metadata->>'label_color' ~ '^[a-zA-Z]{3,20}$'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
