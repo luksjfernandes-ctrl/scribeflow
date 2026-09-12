@@ -31,9 +31,17 @@ Scrivener is the gold standard for fiction writing software — but it's paid, d
 
 ## Screenshots
 
-| Editor | Composition Mode |
-|--------|-----------------|
-| Full writing environment with binder, editor, and inspector | Distraction-free "Deep Dark" mode with paragraph focus |
+### Editor
+
+The full writing environment: hierarchical binder on the left, manuscript in the center, and the Inspector on the right with synopsis, label, status and notes per document. Word count and session target live in the footer.
+
+![ScribeFlow editor showing a binder with three chapters, a manuscript page, and the inspector panel](docs/screenshots/editor.jpg)
+
+### Composition Mode
+
+Distraction-free writing. Everything else fades away and paragraph focus dims what you are not writing, so only the current passage stays bright. Press `ESC` to return.
+
+![ScribeFlow composition mode: centered prose on a near-black background, with earlier paragraphs dimmed and the current one bright](docs/screenshots/composition-mode.jpg)
 
 ---
 
