@@ -9,7 +9,6 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { z } from 'zod';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import Underline from '@tiptap/extension-underline';
 import Highlight from '@tiptap/extension-highlight';
 import TextAlign from '@tiptap/extension-text-align';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -928,8 +927,7 @@ export default function App() {
   // Global Editor instance for shared focus mode (Hardening/Refactor)
   const globalEditor = useEditor({
     extensions: [
-      StarterKit,
-      Underline,
+      StarterKit, // ja inclui Underline no TipTap v3
       Highlight,
       TextAlign.configure({
         types: ['heading', 'paragraph'],
@@ -1379,6 +1377,7 @@ export default function App() {
                         onZoomChange={setZoom}
                         externalEditor={globalEditor}
                         onAddComment={handleAddComment}
+                        isCompositionMode={isCompositionMode}
                       />
                     )
                   )}
