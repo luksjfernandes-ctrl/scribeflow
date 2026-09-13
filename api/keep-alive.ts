@@ -31,11 +31,22 @@ export default async function handler(
   // .trim() dos dois lados: valor gravado via stdin pode carregar \n, e o
   // header pode vir com espaco. Sem isso a comparacao falha silenciosamente.
   const secret = process.env.CRON_SECRET?.trim()
+
+  // Falha FECHADO. A versao anterior era `if (secret && given !== secret)`:
+  // sem CRON_SECRET definido a guarda inteira sumia e o endpoint ficava
+  // aberto — confirmado explorável no preview, que respondia 200 sem header.
+  // A Vercel envia `Authorization: Bearer $CRON_SECRET` nas invocacoes
+  // agendadas, entao exigir o secret nao quebra o cron.
+  if (!secret) {
+    console.error('[keep-alive] CRON_SECRET ausente; recusando por seguranca')
+    return send(res, 503, { error: 'CRON_SECRET nao configurado' })
+  }
+
   const given = req.headers.authorization?.replace(/^Bearer\s+/i, '').trim()
-  if (secret && given !== secret) {
-    console.log(
-      `[keep-alive] token nao confere (len esperado=${secret.length}, recebido=${given?.length ?? 0})`,
-    )
+  if (given !== secret) {
+    // Sem o comprimento do segredo: era informacao gratuita para quem
+    // chamasse sem credencial.
+    console.log('[keep-alive] token nao confere')
     return send(res, 401, { error: 'Unauthorized' })
   }
 
