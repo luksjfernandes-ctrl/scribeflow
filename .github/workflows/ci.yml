@@ -1,0 +1,47 @@
+# CI basico do ScribeFlow.
+#
+# Motivo: em uma semana o repo (PUBLICO) acumulou tres rodadas de achados de
+# seguranca corrigidos ao vivo — XSS armazenado, keep-alive que respondia 200
+# sem credencial e ausencia de CSP. Todas ja estao em producao, mas nada
+# impedia que uma regressao voltasse pelo mesmo caminho: nao havia verificacao
+# automatica nenhuma entre o commit e o deploy.
+#
+# As tres etapas sao BLOQUEANTES de proposito. Pipeline que avisa e nao barra
+# vira ruido. Nasce verde: lint, build e os 8 testes do keep-alive foram
+# rodados nesta arvore antes de o arquivo existir.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Push novo no mesmo branch cancela a run anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Mesma major do ambiente de execucao da Vercel.
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` (e nao `install`): falha se o package-lock.json divergir.
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      # Cobre a autorizacao do /api/keep-alive (PR #19).
+      - name: Testes
+        run: npm test
