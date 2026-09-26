@@ -29,7 +29,7 @@ export function Scrivenings({ docs }: ScriveningsProps) {
             </div>
             
             <div 
-              className="prose prose-stone max-w-none font-serif text-lg leading-relaxed text-[#1A1A1A]"
+              className="book-text prose prose-stone max-w-none font-serif text-lg leading-relaxed text-[#1A1A1A]"
               dangerouslySetInnerHTML={{ __html: doc.content ? sanitizeHtml(doc.content) : '<p class="italic opacity-30">Empty document</p>' }}
             />
             

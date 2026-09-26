@@ -18,30 +18,60 @@ import {
   FileSearch,
   Layout,
   MoreVertical,
-  Settings
+  Settings,
+  Pencil,
+  BookMarked
 } from 'lucide-react';
 import { Doc, DocumentType } from '../types';
-import { ICONS, FOLDER_COLORS } from '../constants';
+import { ICONS, FOLDER_COLORS, labelColorOf } from '../constants';
 import { getDocIcon } from '../utils/getDocIcon';
 import { cn } from '../lib/utils';
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   pointerWithin,
   KeyboardSensor,
   PointerSensor,
+  useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
+  CollisionDetection,
+  Modifier,
   DragEndEvent,
+  DragMoveEvent,
+  DragOverEvent,
+  DragStartEvent,
 } from '@dnd-kit/core';
 import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-  useSortable,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+  DropPosition,
+  getDropPosition,
+  getSortedChildren,
+  isContainer,
+  planDrop,
+} from '../lib/binderOrder';
+import { InlineNameInput } from './InlineNameInput';
+import { isInTrash } from '../lib/trash';
+
+// Com o ponteiro em cima de uma linha, ela é o alvo; nos vãos, a mais próxima.
+const binderCollision: CollisionDetection = (args) => {
+  const within = pointerWithin(args);
+  return within.length > 0 ? within : closestCenter(args);
+};
+
+// Desloca a "fantasma" do arraste para baixo e para a direita do ponteiro,
+// para ela não cobrir a linha-alvo e o indicador de onde vai cair.
+const offsetOverlay: Modifier = ({ transform }) => ({
+  ...transform,
+  x: transform.x + 32,
+  y: transform.y + 22,
+});
+
+interface DropIndicator {
+  overId: string;
+  position: DropPosition;
+}
 
 
 
@@ -76,6 +106,7 @@ interface SortableBinderItemProps {
   onRenameComplete: () => void;
   childrenDocs: Doc[];
   renderChildren: (parent_id: string, depth: number) => React.ReactNode;
+  dropPosition: DropPosition | null;
 }
 
 function SortableBinderItem({
@@ -92,31 +123,32 @@ function SortableBinderItem({
   isRenaming,
   onRenameComplete,
   childrenDocs,
-  renderChildren
+  renderChildren,
+  dropPosition
 }: SortableBinderItemProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging
-  } = useSortable({ id: doc.id });
+  // Arrasta pelo puxador; o alvo de soltura é só a linha (sem os filhos),
+  // senão uma pasta aberta cobre a área de todos os filhos e "rouba" o drop.
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: doc.id });
+  const { setNodeRef: setDropRef } = useDroppable({ id: doc.id });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+  const style = { opacity: isDragging ? 0.4 : 1 };
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(doc.title);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // O campo parte do titulo ATUAL: o editTitle inicial fica velho quando o
+  // titulo muda pelo editor, e sair do campo desfazia o titulo novo.
+  const startEditing = () => {
+    setEditTitle(doc.title);
+    setIsEditing(true);
+  };
+
   useEffect(() => {
     if (isRenaming) {
-      setIsEditing(true);
+      startEditing();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRenaming]);
 
   useEffect(() => {
@@ -151,21 +183,37 @@ function SortableBinderItem({
     }
   };
 
+  const hasDisclosure = isContainer(doc) || childrenDocs.length > 0;
+
   const wordCount = (doc.content || '').replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length;
 
   return (
-    <div ref={setNodeRef} style={style} className="select-none">
+    <div ref={setDragRef} style={style} className="select-none">
       <div
+        ref={setDropRef}
+        data-binder-id={doc.id}
         className={cn(
-          "binder-item group",
-          isSelected && "selected"
+          "binder-item group relative",
+          isSelected && "selected",
+          dropPosition === 'inside' && "ring-2 ring-inset ring-[#5B7A3D] bg-[#5B7A3D]/15"
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={() => onSelect(doc.id)}
-        onDoubleClick={() => setIsEditing(true)}
+        onDoubleClick={startEditing}
         onContextMenu={(e) => onContextMenu(e, doc.id)}
       >
+        {(dropPosition === 'before' || dropPosition === 'after') && (
+          <div
+            data-drop-indicator={dropPosition}
+            className={cn(
+              "absolute right-1 h-0.5 bg-[#5B7A3D] rounded-full pointer-events-none z-10",
+              dropPosition === 'before' ? "top-0" : "bottom-0"
+            )}
+            style={{ left: `${depth * 12 + 8}px` }}
+          />
+        )}
         <div
+          aria-label={`Arrastar ${doc.title}`}
           className="w-4 h-4 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity shrink-0 mr-1"
           {...attributes}
           {...listeners}
@@ -180,16 +228,18 @@ function SortableBinderItem({
           </svg>
         </div>
 
+        {/* Seta em pasta e em QUALQUER item com filhos: um texto com filhos
+            (dado legado ou vindo de outra versão) não pode esconder documentos. */}
         <div
           className="w-4 h-4 mr-0.5 flex items-center justify-center cursor-default"
           onClick={(e) => {
-            if (doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter' || doc.type === 'trash') {
+            if (hasDisclosure) {
               e.stopPropagation();
               onToggle(doc.id);
             }
           }}
         >
-          {(doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter' || doc.type === 'trash') && (
+          {hasDisclosure && (
             <div
               className={cn("disclosure-triangle", is_expanded && "expanded")}
               dangerouslySetInnerHTML={{ __html: is_expanded ? ICONS.disclosureExpanded : ICONS.disclosure }}
@@ -201,10 +251,11 @@ function SortableBinderItem({
           {getDocIcon(doc)}
         </div>
 
-        {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
+        {labelColorOf(doc.metadata) && (
           <div
-            className="w-2 h-2 rounded-full mr-2 shadow-sm"
-            style={{ backgroundColor: doc.metadata.label_color }}
+            data-label-dot
+            className="w-2 h-2 rounded-full mr-2 shadow-sm shrink-0"
+            style={{ backgroundColor: labelColorOf(doc.metadata)! }}
           />
         )}
 
@@ -258,16 +309,18 @@ interface BinderProps {
   selectedDocId: string | null;
   onSelectDoc: (id: string) => void;
   onAddDoc: (parent_id: string | null, type: DocumentType) => void;
+  /** Novo Livro/Parte depois do item selecionado. */
+  onAddPart: () => void;
   onDeleteDoc: (id: string) => void;
   onRenameDoc: (id: string, newTitle: string) => void;
-  onReorderDocs: (activeId: string, overId: string) => void;
+  onDropDoc: (activeId: string, targetId: string, position: DropPosition) => void;
+  onRenameProject: (name: string) => void;
   onToggleFolder: (id: string) => void;
   expandedFolders: Set<string>;
   onContextMenu: (e: React.MouseEvent, id: string) => void;
   renamingId: string | null;
   onRenameComplete: () => void;
   onUpdateDoc: (id: string, updates: Partial<Doc>) => void;
-  onMoveDoc: (docId: string, newParentId: string) => void;
 }
 
 export const Binder: React.FC<BinderProps> = ({
@@ -278,57 +331,137 @@ export const Binder: React.FC<BinderProps> = ({
   selectedDocId,
   onSelectDoc,
   onAddDoc,
+  onAddPart,
   onDeleteDoc,
   onRenameDoc,
-  onReorderDocs,
+  onDropDoc,
+  onRenameProject,
   onToggleFolder,
   expandedFolders,
   onContextMenu,
   renamingId,
   onRenameComplete,
-  onUpdateDoc,
-  onMoveDoc
+  onUpdateDoc
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
 
+  const [isEditingProjectName, setIsEditingProjectName] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
+
+  // Distância de ativação: um clique (ou duplo clique para renomear) não vira arraste.
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
         distance: 5,
       },
     }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(KeyboardSensor)
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
+  // Posição real do ponteiro durante o arraste. O `over` e os retângulos do
+  // dnd-kit ficam defasados enquanto a lista rola sozinha, então o alvo e a
+  // posição são lidos do DOM, embaixo do ponteiro.
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-    const draggedDoc = docs.find(d => d.id === active.id);
-    const targetDoc = docs.find(d => d.id === over.id);
-    if (!draggedDoc || !targetDoc) return;
-
-    if (draggedDoc.metadata.folder_role) return;
-
-    const isTargetFolder = targetDoc.type === 'folder' || 
-      targetDoc.metadata.folder_role != null;
-
-    if (isTargetFolder) {
-      onMoveDoc(active.id as string, targetDoc.id);
-    } else if (draggedDoc.parent_id === targetDoc.parent_id) {
-      onReorderDocs(active.id as string, over.id as string);
-    } else {
-      onMoveDoc(active.id as string, targetDoc.parent_id || '');
+  const rowAt = (x: number, y: number): HTMLElement | null => {
+    for (const el of document.elementsFromPoint(x, y)) {
+      const row = (el as HTMLElement).closest?.('[data-binder-id]') as HTMLElement | null;
+      if (row) return row;
     }
+    return null;
   };
+
+  const computeIndicator = (activeId: string, overId: string | null): DropIndicator | null => {
+    let targetId = overId;
+    let y: number | null = null;
+    const pointer = pointerRef.current;
+    if (pointer) {
+      y = pointer.y;
+      const row = rowAt(pointer.x, pointer.y);
+      if (row) targetId = row.dataset.binderId ?? null;
+    }
+    if (!targetId || targetId === activeId) return null;
+    const target = docs.find(d => d.id === targetId);
+    const row = document.querySelector(`[data-binder-id="${CSS.escape(targetId)}"]`);
+    if (!target || !row) return null;
+    const rect = row.getBoundingClientRect();
+    // No teclado (sem ponteiro), usa o meio da linha-alvo.
+    const position = getDropPosition(y ?? rect.top + rect.height / 2, rect, isContainer(target));
+    // Só mostra o indicador onde o drop é válido (nada de pasta dentro de si mesma etc.).
+    return planDrop(docs, activeId, target.id, position) ? { overId: target.id, position } : null;
+  };
+
+  const lastOverRef = useRef<string | null>(null);
+
+  const refreshIndicator = () => {
+    if (!draggingId) return;
+    const next = computeIndicator(draggingId, lastOverRef.current);
+    setDropIndicator(curr =>
+      curr?.overId === next?.overId && curr?.position === next?.position ? curr : next
+    );
+  };
+
+  useEffect(() => {
+    if (!draggingId) return;
+    const onPointerMove = (e: PointerEvent) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const container = scrollRef.current;
+    window.addEventListener('pointermove', onPointerMove, true);
+    // A lista rola sozinha sem o ponteiro mexer: recalcula no scroll também.
+    container?.addEventListener('scroll', refreshIndicator);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove, true);
+      container?.removeEventListener('scroll', refreshIndicator);
+    };
+  });
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const start = event.activatorEvent as PointerEvent;
+    pointerRef.current = typeof start?.clientX === 'number' ? { x: start.clientX, y: start.clientY } : null;
+    lastOverRef.current = null;
+    setDraggingId(event.active.id as string);
+    setDropIndicator(null);
+  };
+
+  const updateIndicator = (event: DragMoveEvent | DragOverEvent) => {
+    lastOverRef.current = (event.over?.id as string) ?? null;
+    const next = computeIndicator(event.active.id as string, lastOverRef.current);
+    setDropIndicator(curr =>
+      curr?.overId === next?.overId && curr?.position === next?.position ? curr : next
+    );
+  };
+
+  // No `onDragMove` o `over` ainda é o do passo anterior (o dnd-kit só o troca
+  // depois, no `onDragOver`). Com o mouse o alvo vem do DOM e isso não pesa;
+  // no teclado não há ponteiro, então o indicador ficava um passo atrás.
+  const handleDragMove = updateIndicator;
+  const handleDragOver = updateIndicator;
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const indicator = computeIndicator(event.active.id as string, (event.over?.id as string) ?? null);
+    pointerRef.current = null;
+    setDraggingId(null);
+    setDropIndicator(null);
+    if (!indicator) return;
+    onDropDoc(event.active.id as string, indicator.overId, indicator.position);
+  };
+
+  const handleDragCancel = () => {
+    pointerRef.current = null;
+    setDraggingId(null);
+    setDropIndicator(null);
+  };
+
+  const draggingDoc = draggingId ? docs.find(d => d.id === draggingId) : null;
 
   // Flat full-text results — shown while a search is active so matches inside
   // collapsed folders surface too (the tree only renders expanded branches).
   const renderSearchResults = () => {
     const results = docs
-      .filter((d) => d.metadata?.folder_role !== 'trash' && matchesSearch(d, searchQuery))
+      .filter((d) => !isInTrash(docs, d.id) && matchesSearch(d, searchQuery))
       .sort((a, b) => a.title.localeCompare(b.title));
 
     if (results.length === 0) {
@@ -347,10 +480,10 @@ export const Binder: React.FC<BinderProps> = ({
         onClick={() => onSelectDoc(doc.id)}
       >
         <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">{getDocIcon(doc)}</div>
-        {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
+        {labelColorOf(doc.metadata) && (
           <div
             className="w-2 h-2 rounded-full mr-2 shadow-sm shrink-0"
-            style={{ backgroundColor: doc.metadata.label_color }}
+            style={{ backgroundColor: labelColorOf(doc.metadata)! }}
           />
         )}
         <span className="flex-1 truncate text-[13px] tracking-tight">{doc.title}</span>
@@ -359,17 +492,12 @@ export const Binder: React.FC<BinderProps> = ({
   };
 
   const renderChildren = (parent_id: string | null, depth: number = 0) => {
-    const children = docs
-      .filter(d => d.parent_id === parent_id)
-      .sort((a, b) => a.order - b.order);
+    const children = getSortedChildren(docs, parent_id);
 
     if (children.length === 0) return null;
 
     return (
-      <SortableContext
-        items={children.map(d => d.id)}
-        strategy={verticalListSortingStrategy}
-      >
+      <>
         {children.map(doc => {
           return (
             <SortableBinderItem
@@ -388,10 +516,11 @@ export const Binder: React.FC<BinderProps> = ({
               onRenameComplete={onRenameComplete}
               childrenDocs={docs.filter(d => d.parent_id === doc.id)}
               renderChildren={renderChildren}
+              dropPosition={dropIndicator?.overId === doc.id ? dropIndicator.position : null}
             />
           );
         })}
-      </SortableContext>
+      </>
     );
   };
 
@@ -409,17 +538,49 @@ export const Binder: React.FC<BinderProps> = ({
             <ChevronDown className="w-4 h-4 group-hover:text-blue-400" />
           </button>
         </div>
-        <button 
-          onClick={onOpenProjects}
-          className="w-full flex items-center gap-2 p-2 hover:bg-black/10 rounded-lg transition-all text-left group"
-        >
-          <div className="w-8 h-8 rounded bg-blue-600/20 flex items-center justify-center shrink-0">
-            <Folder className="w-4 h-4 text-blue-400" />
+        {isEditingProjectName ? (
+          <div className="w-full flex items-center gap-2 p-2">
+            <div className="w-8 h-8 rounded bg-blue-600/20 flex items-center justify-center shrink-0">
+              <Folder className="w-4 h-4 text-blue-400" />
+            </div>
+            <InlineNameInput
+              initialValue={projectName}
+              ariaLabel="Nome do livro"
+              className="flex-1 min-w-0 bg-white border border-[#5B7A3D] rounded px-1 text-sm text-gray-900 focus:outline-none"
+              onCommit={(name) => {
+                setIsEditingProjectName(false);
+                onRenameProject(name);
+              }}
+              onCancel={() => setIsEditingProjectName(false)}
+            />
           </div>
-          <div className="flex-1 min-w-0 text-left">
-            <div className="text-sm font-medium text-gray-200 truncate">{projectName}</div>
+        ) : (
+          <div className="w-full flex items-center gap-1 group/name">
+            <button
+              onClick={onOpenProjects}
+              className="flex-1 min-w-0 flex items-center gap-2 p-2 hover:bg-black/10 rounded-lg transition-all text-left"
+            >
+              <div className="w-8 h-8 rounded bg-blue-600/20 flex items-center justify-center shrink-0">
+                <Folder className="w-4 h-4 text-blue-400" />
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <div className="text-sm font-medium text-gray-200 truncate">{projectName}</div>
+              </div>
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditingProjectName(true);
+              }}
+              disabled={!activeProjectId}
+              className="p-1.5 rounded text-gray-400 opacity-40 group-hover/name:opacity-100 hover:bg-black/20 hover:text-blue-400 transition-opacity shrink-0"
+              title="Renomear livro"
+              aria-label="Renomear livro"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
           </div>
-        </button>
+        )}
       </div>
 
       <div className="p-3">
@@ -440,6 +601,13 @@ export const Binder: React.FC<BinderProps> = ({
             >
               <Plus size={14} />
             </button>
+            <button
+              onClick={onAddPart}
+              className="macos-btn w-6 h-6"
+              title="Novo Livro / Parte (depois do item selecionado)"
+            >
+              <BookMarked size={14} />
+            </button>
           </div>
         </div>
         <div className="relative">
@@ -454,16 +622,28 @@ export const Binder: React.FC<BinderProps> = ({
         </div>
       </div>
       
-      <div className="flex-1 overflow-y-auto py-1 scrivener-scrollbar">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-1 scrivener-scrollbar">
         {searchQuery.trim() ? (
           renderSearchResults()
         ) : (
           <DndContext
             sensors={sensors}
-            collisionDetection={closestCenter}
+            collisionDetection={binderCollision}
+            onDragStart={handleDragStart}
+            onDragMove={handleDragMove}
+            onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
+            onDragCancel={handleDragCancel}
           >
             {renderChildren(null)}
+            <DragOverlay dropAnimation={null} modifiers={[offsetOverlay]}>
+              {draggingDoc ? (
+                <div className="binder-item selected inline-flex w-auto max-w-[220px] shadow-lg rounded opacity-80 pointer-events-none">
+                  <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">{getDocIcon(draggingDoc)}</div>
+                  <span className="flex-1 truncate text-[13px] tracking-tight">{draggingDoc.title}</span>
+                </div>
+              ) : null}
+            </DragOverlay>
           </DndContext>
         )}
       </div>

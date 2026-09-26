@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { ProjectSettings } from '../types';
+import { NewPasswordForm } from './NewPasswordForm';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -35,6 +36,19 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
             </select>
           </div>
 
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium text-gray-300">Estilo de parágrafo</span>
+            <select
+              className="bg-[#222] border border-[#333] rounded-md px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-[#5B7A3D]"
+              aria-label="Estilo de parágrafo"
+              value={settings.paragraph_style === 'blocks' ? 'blocks' : 'book'}
+              onChange={(e) => onUpdateSettings({ paragraph_style: e.target.value as 'book' | 'blocks' })}
+            >
+              <option value="book">Livro (recuo)</option>
+              <option value="blocks">Blocos (espaço entre parágrafos)</option>
+            </select>
+          </div>
+
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-gray-300">Target Word Count</span>
             <input 
@@ -55,15 +69,15 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
             />
           </div>
 
-          <div className="space-y-1.5">
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">PAPER WIDTH (PX)</div>
-            <input 
-              type="number" 
-              className="w-full bg-[#222] border border-[#333] rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#5B7A3D]"
-              value={settings.paper_width}
-              onChange={(e) => onUpdateSettings({ paper_width: parseInt(e.target.value) || 0 })}
-            />
-          </div>
+          <details className="border-t border-[#333] pt-3">
+            <summary className="text-sm font-medium text-gray-300 cursor-pointer select-none">Trocar senha</summary>
+            <div className="pt-3">
+              <NewPasswordForm variant="settings" submitLabel="Trocar senha" />
+            </div>
+          </details>
+
+          {/* PAPER WIDTH escondido: o valor era gravado e o editor nunca o aplicava
+              (largura fixa em Editor.tsx, que é da sf-editor). Volta quando o editor ler paper_width. */}
         </div>
 
         <div className="p-4 bg-[#222] border-t border-[#333] flex justify-end">

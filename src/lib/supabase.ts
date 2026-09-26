@@ -13,3 +13,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// Usados pelo envio com keepalive na descarga da pagina (ver App.tsx), que nao
+// pode esperar o supabase-js buscar a sessao de forma assincrona.
+export { supabaseUrl, supabaseAnonKey };

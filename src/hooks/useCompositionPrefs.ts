@@ -18,19 +18,21 @@ const STORAGE_KEY = 'scribeflow-composition-prefs';
 
 export function useCompositionPrefs() {
   const [prefs, setPrefs] = useState<CompositionPrefs>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        return { ...DEFAULT_PREFS, ...JSON.parse(saved) };
-      } catch (e) {
-        return DEFAULT_PREFS;
-      }
+    // localStorage pode lançar (aba anônima, armazenamento bloqueado)
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      return saved ? { ...DEFAULT_PREFS, ...JSON.parse(saved) } : DEFAULT_PREFS;
+    } catch {
+      return DEFAULT_PREFS;
     }
-    return DEFAULT_PREFS;
   });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
+    } catch {
+      // sem armazenamento: os ajustes valem só nesta sessão
+    }
   }, [prefs]);
 
   const updatePrefs = (updates: Partial<CompositionPrefs>) => {

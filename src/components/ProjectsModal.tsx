@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Plus, Folder, Trash2, Check, Clock } from 'lucide-react';
+import { X, Plus, Folder, Trash2, Check, Clock, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
 import { Project } from '../types';
+import { InlineNameInput } from './InlineNameInput';
 
 interface ProjectsModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface ProjectsModalProps {
   onSelect: (id: string) => void;
   onCreate: (name: string) => void;
   onDelete: (id: string) => void;
+  onRename: (id: string, name: string) => void;
 }
 
 const ProjectsModal: React.FC<ProjectsModalProps> = ({
@@ -21,9 +23,11 @@ const ProjectsModal: React.FC<ProjectsModalProps> = ({
   activeProjectId,
   onSelect,
   onCreate,
-  onDelete
+  onDelete,
+  onRename
 }) => {
   const [newProjectName, setNewProjectName] = useState('');
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const handleCreate = (e: React.FormEvent) => {
@@ -68,7 +72,9 @@ const ProjectsModal: React.FC<ProjectsModalProps> = ({
                 {projects.map((proj) => (
                   <div
                     key={proj.id}
-                    onClick={() => onSelect(proj.id)}
+                    onClick={() => {
+                      if (renamingProjectId !== proj.id) onSelect(proj.id);
+                    }}
                     className={`group relative flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${
                       activeProjectId === proj.id
                         ? 'bg-blue-500/10 border-blue-500/50'
@@ -77,7 +83,20 @@ const ProjectsModal: React.FC<ProjectsModalProps> = ({
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-100 truncate">{proj.name}</span>
+                        {renamingProjectId === proj.id ? (
+                          <InlineNameInput
+                            initialValue={proj.name}
+                            ariaLabel="Novo nome do projeto"
+                            className="flex-1 min-w-0 bg-[#1a1a1a] border border-blue-500 rounded px-2 py-0.5 text-sm text-gray-100 focus:outline-none"
+                            onCommit={(name) => {
+                              setRenamingProjectId(null);
+                              onRename(proj.id, name);
+                            }}
+                            onCancel={() => setRenamingProjectId(null)}
+                          />
+                        ) : (
+                          <span className="font-medium text-gray-100 truncate">{proj.name}</span>
+                        )}
                         {activeProjectId === proj.id && (
                           <Check className="w-4 h-4 text-blue-400 shrink-0" />
                         )}
@@ -89,6 +108,19 @@ const ProjectsModal: React.FC<ProjectsModalProps> = ({
                     </div>
 
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {renamingProjectId !== proj.id && deleteConfirmId !== proj.id && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRenamingProjectId(proj.id);
+                          }}
+                          className="p-2 text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-all"
+                          title="Renomear projeto"
+                          aria-label={`Renomear ${proj.name}`}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      )}
                       {deleteConfirmId === proj.id ? (
                         <div className="flex items-center gap-1">
                           <button

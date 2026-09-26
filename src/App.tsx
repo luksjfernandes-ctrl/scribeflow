@@ -4,8 +4,6 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { jsPDF } from 'jspdf';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { z } from 'zod';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -40,13 +38,15 @@ import {
   Folder,
   File,
   Target,
-  BarChart3
+  BarChart3,
+  RotateCcw,
+  BookMarked
 } from 'lucide-react';
 import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot, Comment } from './types';
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
-import { arrayMove } from '@dnd-kit/sortable';
+import { DropPosition, OrderUpdate, applyOrderUpdates, isContainer, isPart, nextOrder, planDrop } from './lib/binderOrder';
 import { Inspector, InspectorTab } from './components/Inspector';
 import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
@@ -57,14 +57,21 @@ import { TargetsModal } from './components/TargetsModal';
 import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
-import { supabase } from './lib/supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
+import { SaveQueue, SaveStatus, DocFieldUpdates, mergeServerDocs, shouldRefetchOnRealtime } from './lib/persistence';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
+import { exportManuscript, ExportFormat, NothingToExportError } from './export';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
+import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
+import { isRecoveryUrl } from './lib/password';
+
+/** Lido no carregamento, antes de o supabase-js consumir o hash do link de recuperação. */
+const OPENED_FROM_RECOVERY_LINK = typeof window !== 'undefined' && isRecoveryUrl(window.location.hash);
 
 const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
   const manuscriptId = crypto.randomUUID();
@@ -92,15 +99,25 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  /** Entrou pelo link de "Esqueci a senha": pede a nova senha antes de abrir o app. */
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(OPENED_FROM_RECOVERY_LINK);
+  /** Token da sessao em memoria, para o envio sincrono do pagehide. */
+  const accessTokenRef = React.useRef<string | null>(null);
 
   // Supabase Auth Sync
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      // Link de recuperação inválido ou expirado: não há sessão, volta ao login comum.
+      if (!session) setIsPasswordRecovery(false);
+      accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
+      if (event === 'SIGNED_OUT') setIsPasswordRecovery(false);
+      accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
@@ -134,20 +151,83 @@ export default function App() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
-  const saveDocTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-  const pendingUpdatesRef = React.useRef<Record<string, Partial<Doc> | any>>({});
   const isLocalOperationRef = React.useRef<boolean>(false);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'pending' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  /** Ultimo `docs` renderizado. A fila de salvamento le daqui o metadata na hora
+   *  de gravar, em vez de depender de um efeito colateral dentro do updater. */
+  const docsRef = React.useRef<Doc[]>([]);
+  docsRef.current = docs;
+  const [saveQueue] = useState(() => new SaveQueue({
+    getDoc: (id) => docsRef.current.find(d => d.id === id),
+    write: async (docId, projectId, payload) => {
+      // O supabase-js devolve { error } em vez de lancar, e um update barrado
+      // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
+      const { data, error } = await supabase
+        .from('docs')
+        .update(payload)
+        .eq('id', docId)
+        .eq('project_id', projectId)
+        .select('id');
+      if (error) return { ok: false, retry: true, error: error.message };
+      if (!data || data.length === 0) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+      return { ok: true };
+    },
+    onStatus: setSaveStatus,
+    onError: (docId, error) => console.error(`[Save] falha ao gravar o doc ${docId}:`, error),
+  }));
 
   useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (saveDocTimerRef.current) {
-        clearTimeout(saveDocTimerRef.current);
-      }
+    // Antes o beforeunload CANCELAVA o timer e jogava fora a ultima edicao.
+    // Agora grava o que estiver pendente e, se ainda nao confirmou, pede para
+    // o navegador avisar antes de sair.
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!saveQueue.hasUnsaved()) return;
+      void saveQueue.flush();
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    const flushNow = () => { if (saveQueue.hasUnsaved()) void saveQueue.flush(); };
+    const handleVisibility = () => { if (document.visibilityState === 'hidden') flushNow(); };
+    // Na descarga, o fetch do flush acima e abortado pelo navegador. O que ainda
+    // nao foi confirmado vai por fetch com keepalive, que sobrevive a pagina.
+    // O keepalive aceita no maximo 64 KB somados; o que passar disso fica so
+    // com o aviso do beforeunload.
+    const handlePageHide = () => {
+      const token = accessTokenRef.current;
+      if (!saveQueue.hasUnsaved() || !token) return;
+      let budget = 60_000;
+      saveQueue.drainForUnload((docId, projectId, payload) => {
+        const body = JSON.stringify(payload);
+        const size = new TextEncoder().encode(body).length;
+        if (size > budget) return false;
+        try {
+          void fetch(`${supabaseUrl}/rest/v1/docs?id=eq.${encodeURIComponent(docId)}&project_id=eq.${encodeURIComponent(projectId)}`, {
+            method: 'PATCH',
+            keepalive: true,
+            headers: {
+              apikey: supabaseAnonKey,
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=minimal',
+            },
+            body,
+          }).catch(() => {});
+        } catch {
+          return false;
+        }
+        budget -= size;
+        return true;
+      });
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [saveQueue]);
   
   // Panel Widths
   const [binderWidth, setBinderWidth] = useState(240);
@@ -164,131 +244,27 @@ export default function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   const handleExport = async (format: string) => {
-    // 1. Filter documents marked for compile
-    const compileDocs = docs
-      .filter(d => d.type === 'text' && d.metadata.is_include_in_compile)
-      .sort((a, b) => a.order - b.order);
-    
-    if (compileDocs.length === 0) {
-      alert("No documents are marked for inclusion in compile. Please check 'Include in Compile' in the Inspector for the documents you want to export.");
-      return;
-    }
-
-    const safeTitle = project?.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'scribeflow';
-
-    const downloadBlob = (blob: Blob, filename: string) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    };
-
+    // A montagem (árvore do binder, lixeira, compilação) e os formatos ficam em src/export.
     try {
-      if (format === 'txt') {
-        const content = compileDocs.map(d => `${d.title.toUpperCase()}\n\n${d.content.replace(/<[^>]*>/g, '')}`).join('\n\n' + '='.repeat(40) + '\n\n');
-        const blob = new Blob([content], { type: 'text/plain' });
-        downloadBlob(blob, `${safeTitle}_export.txt`);
-      } 
-      else if (format === 'pdf') {
-        const doc = new jsPDF();
-        let yOffset = 20;
-        
-        doc.setFontSize(24);
-        doc.text(project?.name || 'Manuscript', 105, yOffset, { align: 'center' });
-        yOffset += 20;
-        
-        doc.setFontSize(12);
-        
-        compileDocs.forEach((d, index) => {
-          if (index > 0) {
-            doc.addPage();
-            yOffset = 20;
-          }
-          
-          doc.setFontSize(16);
-          doc.setFont("times", "bold");
-          doc.text(d.title, 20, yOffset);
-          yOffset += 15;
-          
-          doc.setFontSize(12);
-          doc.setFont("times", "normal");
-          
-          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-          const lines = doc.splitTextToSize(cleanText, 170);
-          
-          for (let i = 0; i < lines.length; i++) {
-            if (yOffset > 270) {
-              doc.addPage();
-              yOffset = 20;
-            }
-            doc.text(lines[i], 20, yOffset);
-            yOffset += 7;
-          }
-        });
-        
-        doc.save(`${safeTitle}_export.pdf`);
-      }
-      else if (format === 'docx') {
-        const children: Paragraph[] = [];
-        
-        // Title page
-        children.push(new Paragraph({ text: project?.name || 'Manuscript', heading: HeadingLevel.TITLE, spacing: { after: 400 } }));
-        
-        compileDocs.forEach(d => {
-          children.push(new Paragraph({ text: d.title, heading: HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
-          
-          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-          const paragraphs = cleanText.split('\n').filter((p: string) => p.trim());
-          
-          paragraphs.forEach((p: string) => {
-            children.push(new Paragraph({
-              children: [new TextRun(p)],
-              spacing: { after: 120 }
-            }));
-          });
-        });
-
-        const docxDoc = new Document({ sections: [{ properties: {}, children }] });
-        const blob = await Packer.toBlob(docxDoc);
-        downloadBlob(blob, `${safeTitle}_export.docx`);
-      }
-      else if (format === 'rtf') {
-        let rtf = `{\\rtf1\\ansi\\ansicpg1252\\deff0\\nouicompat\\deflang1033{\\fonttbl{\\f0\\fnil\\fcharset0 Times New Roman;}}\n`;
-        rtf += `{\\*\n\\title ${project?.name || 'Manuscript'}}\n`;
-        rtf += `\\qc\\b\\fs48 ${project?.name || 'Manuscript'}\\par\\par\\b0\\fs24\\ql\n`;
-        
-        compileDocs.forEach(d => {
-          rtf += `\\page\\b\\fs32 ${d.title}\\par\\b0\\fs24\\par\n`;
-          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\\par\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-          rtf += cleanText + `\\par\n`;
-        });
-        
-        rtf += `}`;
-        const blob = new Blob([rtf], { type: 'application/rtf' });
-        downloadBlob(blob, `${safeTitle}_export.rtf`);
-      }
-      else if (format === 'epub') {
-        alert("EPUB exporter is currently in development. Please use DOCX or PDF for right now.");
-      }
+      // Mesma opção de Ajustes que o editor usa (Livro, o padrão, ou Blocos).
+      const paragraphStyle = project?.settings?.paragraph_style === 'blocks' ? 'blocks' : 'book';
+      await exportManuscript(format as ExportFormat, docs, project?.name, { paragraphStyle });
     } catch (err) {
-      console.error("Export failed:", err);
-      alert("Failed to export document.");
+      if (err instanceof NothingToExportError) {
+        alert("Nenhum documento do Manuscript está marcado para compilar. Marque 'Include in Compile' no Inspector dos documentos que devem sair.");
+      } else {
+        console.error('Export failed:', err);
+        alert(err instanceof Error && format === 'epub' ? err.message : 'Não foi possível exportar o documento.');
+      }
     }
 
     setIsExportOpen(false);
   };
 
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    alert('URL do projeto copiada para a área de transferência!');
-  };
-
   const handleLogout = async () => {
     try {
+      // Sem sessao, o RLS barraria o que ainda estiver na fila.
+      if (saveQueue.hasUnsaved()) await saveQueue.flush();
       await supabase.auth.signOut();
       setUser(null);
       setProjects([]);
@@ -300,67 +276,17 @@ export default function App() {
     }
   };
 
-  const handleSave = () => {
-    setLastSaved(new Date());
+  const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string }>({ ok: true, text: 'Project Saved' });
+
+  // ⌘S grava de fato o que estiver na fila e só diz "salvo" se o banco confirmou.
+  const handleSave = async () => {
+    if (saveQueue.hasUnsaved()) await saveQueue.flush();
+    const ok = !saveQueue.hasUnsaved();
+    if (ok) setLastSaved(new Date());
+    setSaveMessage(ok ? { ok, text: 'Project Saved' } : { ok, text: 'Não foi possível salvar: veja a conexão' });
     setShowSaveIndicator(true);
     setTimeout(() => setShowSaveIndicator(false), 2000);
   };
-
-  const menus = [
-    {
-      label: 'File',
-      items: [
-        { label: 'New Text', shortcut: '⌘N', onClick: () => handleAddDoc(null, 'text') },
-        { label: 'New Folder', shortcut: '⇧⌘N', onClick: () => handleAddDoc(null, 'folder') },
-        { divider: true },
-        { label: 'Save', shortcut: '⌘S', onClick: handleSave },
-        { label: 'Export Draft...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
-        { divider: true },
-        { label: 'Print...', shortcut: '⌘P', onClick: () => window.print() },
-      ]
-    },
-    {
-      label: 'Edit',
-      items: [
-        { label: 'Undo', shortcut: '⌘Z', onClick: () => console.log('Undo (handled by TipTap)') },
-        { label: 'Redo', shortcut: '⇧⌘Z', onClick: () => console.log('Redo (handled by TipTap)') },
-      ]
-    },
-    {
-      label: 'View',
-      items: [
-        { label: 'Editor', shortcut: '⌘1', onClick: () => setViewMode('editor') },
-        { label: 'Corkboard', shortcut: '⌘2', onClick: () => setViewMode('corkboard') },
-        { label: 'Outliner', shortcut: '⌘3', onClick: () => setViewMode('outliner') },
-        { label: 'Scrivenings', shortcut: '⌘4', onClick: () => setViewMode('scrivenings') },
-        { divider: true },
-        { label: 'Toggle Binder', shortcut: '⌥⌘B', onClick: () => setIsBinderOpen(!isBinderOpen) },
-        { label: 'Toggle Inspector', shortcut: '⌥⌘I', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
-        { divider: true },
-        { label: 'Enter Composition Mode', shortcut: '⌥⌘F', onClick: () => setComposeState('open') },
-      ]
-    },
-    {
-      label: 'ScribeFlow',
-      items: [
-        { label: 'Sobre o ScribeFlow...', onClick: () => setIsAboutOpen(true) },
-        { divider: true },
-        { label: 'Sair do Sistema', onClick: handleLogout },
-      ]
-    },
-    {
-      label: 'Project',
-      items: [
-        { label: 'My Projects...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
-        { label: 'New Project...', shortcut: '⇧⌘P', onClick: () => handleCreateProject('New Project') },
-        { divider: true },
-        { label: 'Project Settings...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
-        { divider: true },
-        { label: 'New Character Sketch', onClick: () => handleAddDoc(null, 'characters') },
-        { label: 'New Setting Sketch', onClick: () => handleAddDoc(null, 'places') },
-      ]
-    }
-  ];
 
   const startResizingSplit = (e: React.MouseEvent) => {
     const startX = e.clientX;
@@ -444,6 +370,14 @@ export default function App() {
     document.addEventListener('mouseup', onMouseUp);
   };
 
+  // O canal realtime de projects chama fetchProjects com o closure do efeito,
+  // em que activeProjectId ainda e null. Sem este ref, qualquer gravacao em
+  // projects (um ajuste, renomear o livro) era tratada como primeiro acesso:
+  // trocava o projeto ativo pelo atualizado mais recentemente e reabria
+  // "Meus Projetos" sempre que o ultimo projeto nao estava no localStorage.
+  const activeProjectIdRef = React.useRef<string | null>(null);
+  activeProjectIdRef.current = activeProjectId;
+
   // Supabase Data Sync
   useEffect(() => {
     if (!isAuthReady) return;
@@ -462,7 +396,7 @@ export default function App() {
 
         if (data && data.length > 0) {
           setProjects(data as Project[]);
-          if (!activeProjectId) {
+          if (!activeProjectIdRef.current) {
             const lastProjectId = localStorage.getItem('scribeflow-last-project');
             const matchProject = data.find(p => p.id === lastProjectId);
             
@@ -531,33 +465,46 @@ export default function App() {
       return;
     }
 
+    // Descarta a resposta de um fetch que foi ultrapassado por outro mais novo.
+    let fetchSeq = 0;
+    let cancelled = false;
     const fetchDocs = async () => {
+      const seq = ++fetchSeq;
       const { data, error } = await supabase
         .from('docs')
         .select('*')
         .eq('project_id', activeProjectId)
         .order('order', { ascending: true });
 
+      if (cancelled || seq !== fetchSeq) return;
       if (error) {
         console.error('[Supabase] Error fetching docs:', error.message);
+        // Na carga inicial do projeto nao ha estado local valido; num refetch,
+        // manter o que ja esta na tela e melhor que trocar por lista vazia.
+        if (seq === 1) setDocs([]);
+        return;
       }
 
-      setDocs(data || [] as Doc[]);
+      // Campo com edicao ainda nao confirmada pelo banco fica com o valor local.
+      setDocs(curr => mergeServerDocs(curr, (data || []) as Doc[], id => saveQueue.dirtyFields(id)));
     };
 
     fetchDocs();
 
     const docsChannel = supabase.channel(`docs-list-${activeProjectId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${activeProjectId}` }, 
-        () => {
-          if (!isLocalOperationRef.current) fetchDocs();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${activeProjectId}` },
+        (payload) => {
+          if (isLocalOperationRef.current) return;
+          // O eco da propria gravacao nao precisa de refetch: o estado local ja e o mais novo.
+          if (shouldRefetchOnRealtime(payload, (id, at) => saveQueue.isOwnEcho(id, at))) fetchDocs();
         })
       .subscribe();
 
     return () => {
+      cancelled = true;
       docsChannel.unsubscribe();
     };
-  }, [user, activeProjectId]);
+  }, [user, activeProjectId, saveQueue]);
 
   const { manuscript: manuscriptFolder, trash: trashFolder, characters: charactersFolder, places: placesFolder, research: researchFolder } = useStructuralFolders(docs);
 
@@ -569,7 +516,7 @@ export default function App() {
   // Total manuscript word count across all documents in the project.
   const projectWordCount = useMemo(
     () =>
-      docs.reduce(
+      withoutTrash(docs).reduce(
         (acc, doc) =>
           acc + (doc.content?.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length || 0),
         0
@@ -595,7 +542,7 @@ export default function App() {
   const currentFolderDocs = useMemo(() => {
     if (!selectedDoc) return [];
     const folderTypes: DocumentType[] = ['folder', 'research', 'characters', 'places', 'front-matter', 'trash'] as DocumentType[];
-    if (folderTypes.includes(selectedDoc.type)) {
+    if (folderTypes.includes(selectedDoc.type) || (isPart(selectedDoc) && docs.some(d => d.parent_id === selectedDoc.id))) {
       return docs.filter(d => d.parent_id === selectedDoc.id).sort((a, b) => a.order - b.order);
     }
     return [selectedDoc];
@@ -628,7 +575,18 @@ export default function App() {
   }).partial();
 
   // Handlers
-  const handleAddDoc = async (parent_id: string | null, type: DocumentType) => {
+  const handleAddDoc = async (
+    parent_id: string | null,
+    type: DocumentType,
+    opts: { asPart?: boolean; afterId?: string | null } = {},
+  ) => {
+    // Texto não tem filhos visíveis no fluxo normal: "New Text" sobre um texto
+    // cria o novo item logo DEPOIS dele, como irmão, e não escondido dentro.
+    // `afterId` pede isso explicitamente (Novo Livro/Parte: mesmo nível, logo depois).
+    const clickedDoc = parent_id ? docs.find(d => d.id === parent_id) : undefined;
+    const afterDoc = opts.afterId ? docs.find(d => d.id === opts.afterId && !d.metadata.folder_role) : undefined;
+    const siblingOf = afterDoc ?? (clickedDoc && !isContainer(clickedDoc) ? clickedDoc : undefined);
+    if (siblingOf) parent_id = siblingOf.parent_id;
     let final_parent_id = parent_id;
     if (!final_parent_id) {
       if (type === 'characters') final_parent_id = charactersFolder?.id || null;
@@ -640,13 +598,14 @@ export default function App() {
     const newId = crypto.randomUUID();
     const newDoc: Doc = {
       id: newId,
-      title: type === 'folder' ? 'New Folder' : 
+      title: opts.asPart ? 'Novo Livro' :
+             type === 'folder' ? 'New Folder' : 
              type === 'characters' ? 'New Character' : 
              type === 'places' ? 'New Setting' : 'New Document',
       content: '',
       type,
       parent_id: final_parent_id,
-      order: docs.filter(d => d.parent_id === final_parent_id).length,
+      order: nextOrder(docs, final_parent_id),
       metadata: {
         status: 'To Do',
         label: 'none',
@@ -655,7 +614,7 @@ export default function App() {
         notes: '',
         target_word_count: 0,
         is_include_in_compile: true,
-        section_type: type === 'folder' ? 'Heading' : 'Scene',
+        section_type: opts.asPart ? 'Part' : type === 'folder' ? 'Heading' : 'Scene',
         created_at: Date.now(),
         updated_at: Date.now(),
         keywords: [],
@@ -683,8 +642,15 @@ export default function App() {
       isLocalOperationRef.current = true;
       try {
         const docWithProjectId = { ...newDoc, project_id: activeProjectId };
-        await supabase.from('docs').insert(docWithProjectId);
-        setDocs(curr => [...curr, docWithProjectId as Doc]);
+        const { error } = await supabase.from('docs').insert(docWithProjectId);
+        if (error) throw error;
+        const withNew = [...docs, docWithProjectId as Doc];
+        const reorder = siblingOf ? planDrop(withNew, newId, siblingOf.id, 'after') : null;
+        setDocs(curr => {
+          const next = [...curr, docWithProjectId as Doc];
+          return reorder ? applyOrderUpdates(next, reorder) : next;
+        });
+        if (reorder) persistOrderUpdates(reorder);
       } catch (e) {
         console.error('Error adding doc:', e);
       }
@@ -701,6 +667,24 @@ export default function App() {
     }
   };
 
+  /** Novo Livro/Parte: no mesmo nível do item escolhido, logo depois dele.
+   *  Sobre uma pasta estrutural (ou sem seleção), entra no fim dela / do Manuscript. */
+  const handleAddPart = (anchorId: string | null) => {
+    const anchor = anchorId ? docs.find(d => d.id === anchorId) : undefined;
+    if (anchor && !anchor.metadata.folder_role) {
+      void handleAddDoc(anchor.parent_id, 'text', { asPart: true, afterId: anchor.id });
+    } else {
+      void handleAddDoc(anchor?.id ?? null, 'text', { asPart: true });
+    }
+  };
+
+  /** Converte um documento de texto em Livro/Parte, ou de volta em cena. */
+  const handleTogglePart = (id: string) => {
+    const target = docs.find(d => d.id === id);
+    if (!target || target.type !== 'text') return;
+    handleUpdateMetadata(id, { section_type: isPart(target) ? 'Scene' : 'Part' });
+  };
+
   const getAllChildrenIds = (folderId: string, currentDocs: Doc[]): string[] => {
     const childrenIds = currentDocs.filter(d => d.parent_id === folderId).map(d => d.id);
     let allIds = [...childrenIds];
@@ -714,14 +698,7 @@ export default function App() {
     const targetDoc = docs.find(d => d.id === id);
     if (!targetDoc || targetDoc.metadata.folder_role) return; // Cannot delete structural folders
     
-    let isInTrash = targetDoc.parent_id === trashFolder?.id;
-    let parent = docs.find(d => d.id === targetDoc.parent_id);
-    while (!isInTrash && parent) {
-      if (parent.id === trashFolder?.id) isInTrash = true;
-      parent = docs.find(d => d.id === parent?.parent_id);
-    }
-
-    if (isInTrash) {
+    if (isInTrash(docs, id)) {
       if (window.confirm('Tem certeza de que deseja excluir permanentemente este item? Esta ação não pode ser desfeita.')) {
         const idsToDelete = [id, ...getAllChildrenIds(id, docs)];
         if (user && activeProjectId) {
@@ -735,27 +712,40 @@ export default function App() {
         if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
       }
     } else if (trashFolder) {
-      const updatedMetadata = targetDoc.metadata.is_include_in_compile
-        ? { ...targetDoc.metadata, is_include_in_compile: false }
-        : targetDoc.metadata;
-      if (user && activeProjectId) {
-        isLocalOperationRef.current = true;
-        await supabase.from('docs').update({ parent_id: trashFolder.id, metadata: updatedMetadata }).eq('id', id);
-        if (targetDoc.type === 'folder') {
-          const childIds = getAllChildrenIds(id, docs);
-          if (childIds.length > 0) {
-            await supabase.from('docs').update({ parent_id: trashFolder.id }).in('id', childIds);
-          }
-        }
-      }
-      setDocs(curr => curr.map(d => {
-        if (d.id === id) return { ...d, parent_id: trashFolder.id, metadata: updatedMetadata };
-        if (targetDoc.type === 'folder' && getAllChildrenIds(id, docs).includes(d.id)) return { ...d, parent_id: trashFolder.id };
-        return d;
-      }));
-      setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
-      if (selectedDocId === id) setSelectedDocId(null);
+      // Move só o item: os filhos de uma pasta vão junto porque continuam
+      // apontando para ela. Antes cada filho ia solto para a raiz da lixeira
+      // (a estrutura se perdia) e seguia marcado para compilar.
+      const trash_origin: TrashOrigin = {
+        parent_id: targetDoc.parent_id,
+        order: targetDoc.order,
+        is_include_in_compile: targetDoc.metadata.is_include_in_compile,
+      };
+      const fields = { parent_id: trashFolder.id, order: nextOrder(docs, trashFolder.id) };
+      const metadataPatch = { is_include_in_compile: false, trash_origin, updated_at: Date.now() };
+      setDocs(curr => curr.map(d => d.id === id ? { ...d, ...fields, metadata: { ...d.metadata, ...metadataPatch } } : d));
+      if (user && activeProjectId) saveQueue.enqueue(id, activeProjectId, { fields, metadataPatch });
+      if (selectedDocId === id || getAllChildrenIds(id, docs).includes(selectedDocId || '')) setSelectedDocId(null);
     }
+  };
+
+  /** Devolve um item da lixeira (com tudo que estiver dentro dele) para onde estava. */
+  const handleRestoreDoc = (id: string) => {
+    const targetDoc = docs.find(d => d.id === id);
+    if (!targetDoc || !trashFolder || targetDoc.parent_id !== trashFolder.id) return;
+    const origin = targetDoc.metadata.trash_origin;
+    const parent_id = restoreParentId(docs, origin);
+    const fields = { parent_id, order: nextOrder(docs, parent_id) };
+    const metadataPatch = {
+      // Item apagado antes desta versão não tem origem: volta marcado para compilar
+      // só se for texto, que é o padrão de um documento novo.
+      is_include_in_compile: origin ? origin.is_include_in_compile : targetDoc.type === 'text',
+      trash_origin: undefined,
+      updated_at: Date.now(),
+    };
+    setDocs(curr => curr.map(d => d.id === id ? { ...d, ...fields, metadata: { ...d.metadata, ...metadataPatch } } : d));
+    if (user && activeProjectId) saveQueue.enqueue(id, activeProjectId, { fields, metadataPatch });
+    if (parent_id) setExpandedFolders(prev => new Set(prev).add(parent_id));
+    setSelectedDocId(id);
   };
 
   const handleEmptyTrash = async () => {
@@ -863,54 +853,88 @@ export default function App() {
     localStorage.setItem('scribeflow-last-project', id);
   };
 
-  const handleMoveDoc = async (docId: string, newParentId: string) => {
-    const doc = docs.find(d => d.id === docId);
-    if (!doc) return;
-    
-    // Prevenir mover pasta para dentro de si mesma ou de seus filhos
-    if (doc.type === 'folder') {
-      const childIds = getAllChildrenIds(docId, docs);
-      if (childIds.includes(newParentId) || docId === newParentId) return;
-    }
+  // Fila das gravações de ordem: arrastes rápidos gravam na sequência em que
+  // aconteceram, sem uma resposta atrasada sobrescrever um arraste mais novo.
+  const orderSaveQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+  const pendingOrderSavesRef = React.useRef(0);
 
-    const newOrder = docs.filter(d => d.parent_id === newParentId).length;
-    
-    if (user && activeProjectId) {
-      await supabase.from('docs').update({ parent_id: newParentId, order: newOrder }).eq('id', docId);
-    }
-    
-    setDocs(curr => curr.map(d => d.id === docId 
-      ? { ...d, parent_id: newParentId, order: newOrder } 
-      : d
-    ));
+  const persistOrderUpdates = (updates: OrderUpdate[]) => {
+    if (!user || !activeProjectId || updates.length === 0) return;
+    const projectId = activeProjectId;
+    pendingOrderSavesRef.current += 1;
+    // Cada linha gravada dispara um evento realtime; sem isto, o primeiro eco
+    // recarregaria a lista com metade das linhas ainda na ordem antiga.
+    isLocalOperationRef.current = true;
+    setSaveStatus('pending');
+
+    orderSaveQueueRef.current = orderSaveQueueRef.current.then(async () => {
+      const results = await Promise.all(updates.map(u =>
+        supabase
+          .from('docs')
+          .update({ parent_id: u.parent_id, order: u.order })
+          .eq('id', u.id)
+          .eq('project_id', projectId)
+          .then(r => r, (error: unknown) => ({ error })) // rede caída conta como erro
+      ));
+      const failed = results.find(r => r.error);
+      if (failed) {
+        console.error('[Supabase] Erro ao gravar a ordem do binder:', failed.error);
+        setSaveStatus('error');
+        // Volta para o que o banco tem de fato (parte das linhas pode ter gravado).
+        try {
+          const { data } = await supabase
+            .from('docs')
+            .select('id, parent_id, order')
+            .eq('project_id', projectId)
+            .in('id', updates.map(u => u.id));
+          if (data) setDocs(curr => applyOrderUpdates(curr, data as OrderUpdate[]));
+        } catch (e) {
+          console.error('[Supabase] Erro ao reler a ordem do binder:', e);
+        }
+      } else {
+        setSaveStatus('saved');
+      }
+    }).finally(() => {
+      pendingOrderSavesRef.current -= 1;
+      setTimeout(() => {
+        if (pendingOrderSavesRef.current === 0) isLocalOperationRef.current = false;
+      }, 2000);
+    });
   };
 
-  const debouncedSaveDoc = React.useCallback((id: string, updates: any) => {
-    setSaveStatus('pending');
-    
-    pendingUpdatesRef.current[id] = {
-      ...(pendingUpdatesRef.current[id] || {}),
-      ...updates
-    };
+  const handleDropDoc = (activeId: string, targetId: string, position: DropPosition) => {
+    const updates = planDrop(docs, activeId, targetId, position);
+    if (!updates || updates.length === 0) return;
 
-    if (saveDocTimerRef.current) clearTimeout(saveDocTimerRef.current);
-    saveDocTimerRef.current = setTimeout(async () => {
-      const docsToSave = { ...pendingUpdatesRef.current };
-      pendingUpdatesRef.current = {};
-      
-      let allSuccess = true;
-      for (const [docId, mergedUpdates] of Object.entries(docsToSave)) {
-         try {
-           await supabase.from('docs').update({ ...mergedUpdates, updated_at: Date.now() }).eq('id', docId).eq('project_id', activeProjectId);
-         } catch (e) {
-           allSuccess = false;
-           console.error("Debounced save error:", e);
-         }
-      }
-      setSaveStatus(allSuccess ? 'saved' : 'error');
-      saveDocTimerRef.current = null;
-    }, 1500);
-  }, [activeProjectId]);
+    setDocs(curr => applyOrderUpdates(curr, updates));
+    if (position === 'inside') {
+      setExpandedFolders(prev => new Set(prev).add(targetId));
+    }
+    persistOrderUpdates(updates);
+  };
+
+  const handleRenameProject = async (id: string, name: string) => {
+    const trimmed = name.trim();
+    try {
+      projectSchema.parse({ title: trimmed });
+    } catch (err: unknown) {
+      alert(err instanceof z.ZodError ? err.issues[0]?.message : 'Erro de validação');
+      return;
+    }
+    const previous = projects.find(p => p.id === id);
+    if (!previous || previous.name === trimmed) return;
+
+    const updated_at = Date.now();
+    setProjects(prev => prev.map(p => (p.id === id ? { ...p, name: trimmed, updated_at } : p)));
+    if (!user) return;
+
+    const { error } = await supabase.from('projects').update({ name: trimmed, updated_at }).eq('id', id);
+    if (error) {
+      console.error('[Supabase] Erro ao renomear o projeto:', error);
+      setProjects(prev => prev.map(p => (p.id === id ? { ...p, name: previous.name, updated_at: previous.updated_at } : p)));
+      alert('Não foi possível renomear o livro: ' + error.message);
+    }
+  };
 
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
     // Validate Updates
@@ -925,7 +949,8 @@ export default function App() {
     setDocs(curr => curr.map(d => d.id === id ? { ...d, ...updates, updated_at } : d));
 
     if (user && activeProjectId) {
-      debouncedSaveDoc(id, updates);
+      const { metadata, ...fields } = updates;
+      saveQueue.enqueue(id, activeProjectId, { fields: fields as DocFieldUpdates, metadataPatch: metadata });
     }
   };
 
@@ -956,50 +981,143 @@ export default function App() {
     if (globalEditor && selectedDoc && selectedDoc.type !== 'folder') {
       const currentContent = globalEditor.getHTML();
       if (selectedDoc.content !== currentContent) {
-        globalEditor.commands.setContent(selectedDoc.content);
+        // emitUpdate: false — no TipTap v3 o setContent dispara onUpdate por
+        // padrao, e cada troca de capitulo virava uma gravacao do HTML normalizado.
+        globalEditor.commands.setContent(selectedDoc.content, { emitUpdate: false });
       }
     }
   }, [selectedDoc?.id, globalEditor]);
 
-  // Global Shortcuts (Composition Mode, etc.)
+  const canCompose = selectedDoc?.type === 'text';
+  const openCompose = () => { if (canCompose) setComposeState('open'); };
+
+  const handleNewProject = () => {
+    const name = window.prompt('Nome do novo projeto:', '');
+    if (name && name.trim()) handleCreateProject(name.trim());
+  };
+
+  // Desfazer/Refazer do menu agem no editor de texto; os atalhos ⌘Z/⇧⌘Z já
+  // funcionam dentro dele pelo próprio TipTap.
+  const canUndo = viewMode === 'editor' && canCompose && !!globalEditor?.can().undo();
+  const canRedo = viewMode === 'editor' && canCompose && !!globalEditor?.can().redo();
+
+  // Atalho anunciado aqui tem que existir no listener global (ou no TipTap).
+  // Atalhos que o navegador reserva (⌘N, ⌘1-4, ⌥⌘I...) ficam sem rótulo.
+  const menus = [
+    {
+      label: 'File',
+      items: [
+        { label: 'New Text', onClick: () => handleAddDoc(null, 'text') },
+        { label: 'New Folder', onClick: () => handleAddDoc(null, 'folder') },
+        { label: 'Novo Livro / Parte', onClick: () => handleAddPart(selectedDocId) },
+        { divider: true },
+        { label: 'Save', shortcut: '⌘S', onClick: handleSave },
+        { label: 'Export Draft...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
+      ]
+    },
+    {
+      label: 'Edit',
+      items: [
+        { label: 'Undo', shortcut: '⌘Z', disabled: !canUndo, onClick: () => globalEditor?.chain().focus().undo().run() },
+        { label: 'Redo', shortcut: '⇧⌘Z', disabled: !canRedo, onClick: () => globalEditor?.chain().focus().redo().run() },
+        { divider: true },
+        { label: 'Go to Document...', shortcut: '⌘O', onClick: () => setIsQuickSearchOpen(true) },
+      ]
+    },
+    {
+      label: 'View',
+      items: [
+        { label: 'Editor', onClick: () => setViewMode('editor') },
+        { label: 'Corkboard', onClick: () => setViewMode('corkboard') },
+        { label: 'Outliner', onClick: () => setViewMode('outliner') },
+        { label: 'Scrivenings', onClick: () => setViewMode('scrivenings') },
+        { divider: true },
+        { label: 'Toggle Binder', onClick: () => setIsBinderOpen(!isBinderOpen) },
+        { label: 'Toggle Inspector', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
+        { divider: true },
+        { label: 'Enter Composition Mode', shortcut: '⇧⌘F', disabled: !canCompose, onClick: openCompose },
+      ]
+    },
+    {
+      label: 'ScribeFlow',
+      items: [
+        { label: 'Sobre o ScribeFlow...', onClick: () => setIsAboutOpen(true) },
+        { divider: true },
+        { label: 'Sair do Sistema', onClick: handleLogout },
+      ]
+    },
+    {
+      label: 'Project',
+      items: [
+        { label: 'My Projects...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
+        { label: 'New Project...', onClick: handleNewProject },
+        { divider: true },
+        { label: 'Project Settings...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
+        { divider: true },
+        { label: 'New Character Sketch', onClick: () => handleAddDoc(null, 'characters') },
+        { label: 'New Setting Sketch', onClick: () => handleAddDoc(null, 'places') },
+      ]
+    }
+  ];
+
+  // Atalhos globais: cada um corresponde a um rótulo do menu.
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
-      // F11 or Cmd+Shift+F
-      if (e.key === 'F11' || (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey))) {
-        if (selectedDoc && selectedDoc.type === 'text') {
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      // ⌘S vale em qualquer lugar, inclusive no Compose: nunca abre o "salvar página" do navegador.
+      if (mod && !e.shiftKey && !e.altKey && key === 's') {
+        e.preventDefault();
+        void handleSave();
+        return;
+      }
+      if (composeState !== 'closed') return;
+      // F11 ou ⇧⌘F — Compose
+      if (e.key === 'F11' || (mod && e.shiftKey && !e.altKey && key === 'f')) {
+        if (canCompose) {
           e.preventDefault();
           setComposeState('open');
         }
+        return;
       }
-      // Cmd/Ctrl+O — Quick Search / Go to document
-      if (e.key === 'o' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      // ⌘O — Quick Search
+      if (mod && !e.shiftKey && !e.altKey && key === 'o') {
         e.preventDefault();
         setIsQuickSearchOpen((prev) => !prev);
+        return;
+      }
+      // ⇧⌘E — Exportar
+      if (mod && e.shiftKey && !e.altKey && key === 'e') {
+        e.preventDefault();
+        setIsExportOpen(true);
+        return;
+      }
+      // ⌘P — Meus projetos (no lugar do "imprimir" do navegador)
+      if (mod && !e.shiftKey && !e.altKey && key === 'p') {
+        e.preventDefault();
+        setIsProjectsModalOpen(true);
+        return;
+      }
+      // ⌥⌘, — Ajustes do projeto (e.code: no Mac o ⌥ troca o caractere da tecla)
+      if (mod && e.altKey && e.code === 'Comma') {
+        e.preventDefault();
+        setIsSettingsOpen(true);
       }
     };
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
-  }, [selectedDoc]);
+  });
 
   const handleUpdateMetadata = async (id: string, metadata_updates: Partial<DocumentMetadata>) => {
     const updated_at = Date.now();
-    let newMetadata: DocumentMetadata | null = null;
-    setDocs(curr => {
-      const updatedDocs = curr.map(d => {
-        if (d.id === id) {
-          const m = { ...d.metadata, ...metadata_updates, updated_at };
-          newMetadata = m;
-          return { ...d, metadata: m, updated_at };
-        }
-        return d;
-      });
-      return updatedDocs;
-    });
+    const patch = { ...metadata_updates, updated_at };
+    setDocs(curr => curr.map(d => d.id === id ? { ...d, metadata: { ...d.metadata, ...patch }, updated_at } : d));
 
-    if (user && activeProjectId && newMetadata) {
-      isLocalOperationRef.current = true;
-      debouncedSaveDoc(id, { metadata: newMetadata });
-      setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
+    // Antes o metadata completo era capturado DENTRO do updater acima; quando o
+    // React adiava o updater (ex.: outro setDocs no mesmo evento), a variavel
+    // ficava null e o save nunca era enfileirado. A fila guarda so o patch.
+    if (user && activeProjectId) {
+      saveQueue.enqueue(id, activeProjectId, { metadataPatch: patch });
     }
   };
 
@@ -1068,9 +1186,20 @@ export default function App() {
     const updatedSettings = { ...project.settings, ...settings };
     setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, settings: updatedSettings } : p)));
     if (user) {
-      await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
+      // O supabase-js devolve { error } em vez de lancar.
+      const { error } = await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
+      if (error) {
+        console.error('[Supabase] Erro ao gravar os ajustes do projeto:', error.message);
+        setSaveStatus('error');
+      }
     }
   };
+
+  // Estilo de paragrafo do texto (editor, Scrivenings e Compose leem o atributo no <html>).
+  const paragraphStyle = project?.settings?.paragraph_style === 'blocks' ? 'blocks' : 'book';
+  useEffect(() => {
+    document.documentElement.dataset.paragraphStyle = paragraphStyle;
+  }, [paragraphStyle]);
 
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -1094,35 +1223,14 @@ export default function App() {
   const closeContextMenu = () => setContextMenu(null);
 
   useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeContextMenu(); };
     window.addEventListener('click', closeContextMenu);
-    return () => window.removeEventListener('click', closeContextMenu);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', closeContextMenu);
+      window.removeEventListener('keydown', onKey);
+    };
   }, []);
-
-  const handleReorderDocs = (activeId: string, overId: string) => {
-    const activeDoc = docs.find(d => d.id === activeId);
-    const overDoc = docs.find(d => d.id === overId);
-
-    if (!activeDoc || !overDoc || activeDoc.parent_id !== overDoc.parent_id) return;
-
-    const sameLevelDocs = docs
-      .filter(d => d.parent_id === activeDoc.parent_id)
-      .sort((a, b) => a.order - b.order);
-
-    const oldIndex = sameLevelDocs.findIndex(d => d.id === activeId);
-    const newIndex = sameLevelDocs.findIndex(d => d.id === overId);
-
-    const reorderedLevel = arrayMove(sameLevelDocs, oldIndex, newIndex);
-
-    const updatedDocs = docs.map(d => {
-      const reorderedIndex = reorderedLevel.findIndex(rd => rd.id === d.id);
-      if (reorderedIndex !== -1) {
-        return { ...d, order: reorderedIndex };
-      }
-      return d;
-    });
-
-    setDocs(updatedDocs);
-  };
 
   // 1. Initial Auth Loading
   if (!isAuthReady) {
@@ -1139,6 +1247,11 @@ export default function App() {
   // 2. Redirect to Login if no Session
   if (!user) {
     return <Auth />;
+  }
+
+  // 2b. Link de recuperação: a sessão já existe, mas falta definir a nova senha.
+  if (isPasswordRecovery) {
+    return <Auth recovery onRecoveryDone={() => setIsPasswordRecovery(false)} />;
   }
 
   // 3. Optional: Initial Workspace Loading (if user is authenticated but project metadata is still pending)
@@ -1174,10 +1287,10 @@ export default function App() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="fixed top-8 right-8 bg-[#5B7A3D] text-white px-4 py-2 rounded-lg shadow-lg z-[10000] text-xs font-bold flex items-center gap-2"
+            className={cn("fixed top-8 right-8 text-white px-4 py-2 rounded-lg shadow-lg z-[10000] text-xs font-bold flex items-center gap-2", saveMessage.ok ? "bg-[#5B7A3D]" : "bg-red-600")}
           >
             <Save size={14} />
-            Project Saved
+            {saveMessage.text}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1277,8 +1390,10 @@ export default function App() {
         {/* Action Buttons */}
         <div className="flex items-center gap-1">
           <button 
-            onClick={() => setComposeState('open')}
-            className="composition-btn mr-2 flex items-center gap-1.5"
+            onClick={openCompose}
+            disabled={!canCompose}
+            title={canCompose ? 'Compose (F11 / ⇧⌘F)' : 'Selecione um documento de texto'}
+            className="composition-btn mr-2 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <PenTool size={14} />
             Compose
@@ -1311,7 +1426,11 @@ export default function App() {
           </button>
 
           {user && (
-            <button onClick={handleLogout} className="macos-btn" title={`Signed in as ${user.user_metadata?.full_name || user.email}`}>
+            <button
+              onClick={() => { if (window.confirm(`Sair da conta ${user.email}?`)) void handleLogout(); }}
+              className="macos-btn"
+              title={`Signed in as ${user.user_metadata?.full_name || user.email} — clique para sair`}
+            >
               {user.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
               ) : (
@@ -1335,11 +1454,12 @@ export default function App() {
               selectedDocId={selectedDocId}
               onSelectDoc={navigateTo}
               onAddDoc={handleAddDoc}
+              onAddPart={() => handleAddPart(selectedDocId)}
               onUpdateDoc={handleUpdateDoc}
               onDeleteDoc={handleDeleteDoc}
               onRenameDoc={handleRenameDoc}
-              onReorderDocs={handleReorderDocs}
-              onMoveDoc={handleMoveDoc}
+              onDropDoc={handleDropDoc}
+              onRenameProject={(name) => activeProjectId && handleRenameProject(activeProjectId, name)}
               onToggleFolder={toggleFolder}
               expandedFolders={expandedFolders}
               onContextMenu={handleContextMenu}
@@ -1383,6 +1503,7 @@ export default function App() {
                         externalEditor={globalEditor}
                         onAddComment={handleAddComment}
                         suspendEditorContent={composeState !== 'closed'}
+                        onConvertToPart={() => handleTogglePart(selectedDoc.id)}
                       />
                     )
                   )}
@@ -1452,6 +1573,7 @@ export default function App() {
               onUpdateComment={handleUpdateComment}
               onDeleteComment={handleDeleteComment}
               onSelectComment={handleSelectComment}
+              onTogglePart={handleTogglePart}
             />
           </div>
         )}
@@ -1518,6 +1640,7 @@ export default function App() {
           setIsProjectsModalOpen(false);
         }}
         onDelete={handleDeleteProject}
+        onRename={handleRenameProject}
       />
 
       {/* Context Menu */}
@@ -1527,39 +1650,52 @@ export default function App() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="context-menu-item" onClick={() => handleAddDoc(contextMenu.id, 'text')}>
+          <div className="context-menu-item" onClick={() => { handleAddDoc(contextMenu.id, 'text'); setContextMenu(null); }}>
             <div className="context-menu-icon"><File size={14} /></div>
             New Text
-            <span className="context-menu-shortcut">⌘N</span>
           </div>
-          <div className="context-menu-item" onClick={() => handleAddDoc(contextMenu.id, 'folder')}>
+          <div className="context-menu-item" onClick={() => { handleAddDoc(contextMenu.id, 'folder'); setContextMenu(null); }}>
             <div className="context-menu-icon"><Folder size={14} /></div>
             New Folder
-            <span className="context-menu-shortcut">⇧⌘N</span>
           </div>
+          <div className="context-menu-item" onClick={() => { handleAddPart(contextMenu.id); setContextMenu(null); }}>
+            <div className="context-menu-icon"><BookMarked size={14} /></div>
+            Novo Livro / Parte
+          </div>
+          {docs.find(d => d.id === contextMenu.id)?.type === 'text' && (
+            <div className="context-menu-item" onClick={() => { handleTogglePart(contextMenu.id); setContextMenu(null); }}>
+              <div className="context-menu-icon"><BookMarked size={14} /></div>
+              {isPart(docs.find(d => d.id === contextMenu.id)!) ? 'Converter em documento' : 'Converter em Livro / Parte'}
+            </div>
+          )}
           <div className="context-menu-separator" />
           <div className="context-menu-item" onClick={() => { setRenamingId(contextMenu.id); setContextMenu(null); }}>
             <div className="context-menu-icon"><Edit3 size={14} /></div>
             Rename
-            <span className="context-menu-shortcut">↩</span>
           </div>
           {contextMenu && contextMenu.id === trashFolder?.id ? (
             <div className="context-menu-item" onClick={() => { handleEmptyTrash(); setContextMenu(null); }} style={{ color: '#E74C3C' }}>
               <div className="context-menu-icon"><Trash2 size={14} /></div>
               Esvaziar Lixeira
             </div>
-          ) : contextMenu.id !== trashFolder?.id && (
-            <div className="context-menu-item" onClick={() => { handleDeleteDoc(contextMenu.id); setContextMenu(null); }}>
-              <div className="context-menu-icon"><Trash2 size={14} /></div>
-              {docs.find(d => d.id === contextMenu.id)?.parent_id === trashFolder?.id ? 'Deletar Permanentemente' : 'Move to Trash'}
-              <span className="context-menu-shortcut">⌘⌫</span>
-            </div>
+          ) : (
+            <>
+              {docs.find(d => d.id === contextMenu.id)?.parent_id === trashFolder?.id && (
+                <div className="context-menu-item" onClick={() => { handleRestoreDoc(contextMenu.id); setContextMenu(null); }}>
+                  <div className="context-menu-icon"><RotateCcw size={14} /></div>
+                  Restaurar
+                </div>
+              )}
+              {/* Pastas estruturais (Manuscript, Characters...) não vão para a lixeira. */}
+              {!docs.find(d => d.id === contextMenu.id)?.metadata.folder_role && (
+                <div className="context-menu-item" onClick={() => { handleDeleteDoc(contextMenu.id); setContextMenu(null); }}>
+                  <div className="context-menu-icon"><Trash2 size={14} /></div>
+                  {isInTrash(docs, contextMenu.id) ? 'Deletar Permanentemente' : 'Move to Trash'}
+                </div>
+              )}
+            </>
           )}
-          <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { handleShare(); setContextMenu(null); }}>
-            <div className="context-menu-icon"><Share size={14} /></div>
-            Compartilhar Link
-          </div>
+          {/* "Compartilhar Link" escondido: copiava só a URL raiz, sem projeto nem documento. */}
           {contextMenu && docs.find(d => d.id === contextMenu.id)?.type === 'folder' && (
             <>
               <div className="context-menu-separator" />

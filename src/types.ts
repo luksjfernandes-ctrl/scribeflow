@@ -50,6 +50,8 @@ export interface DocumentMetadata {
   snapshots: Snapshot[];
   comments: Comment[];
   bookmarks: Bookmark[];
+  /** Onde o item estava antes de ir para a lixeira (usado pelo Restaurar). */
+  trash_origin?: { parent_id: string | null; order: number; is_include_in_compile: boolean };
 }
 
 export interface Doc {
@@ -72,6 +74,9 @@ export interface ProjectSettings {
   theme: 'traditional' | 'dark';
   paper_width: number;
   background_opacity: number;
+  /** Livro: recuo de primeira linha, sem espaco entre paragrafos (padrao).
+   *  Blocos: sem recuo, com espaco entre paragrafos. Ausente = 'book'. */
+  paragraph_style?: 'book' | 'blocks';
 }
 
 export interface Project {
