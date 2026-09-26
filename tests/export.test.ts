@@ -11,6 +11,7 @@ import { compileManuscript, parseEpigraph, safeFileName, splitPartTitle } from '
 import { buildPdfDefinition, PDF_FONT, type PdfDefinition } from '../src/export/pdf.ts'
 import { buildDocx, withFontTable } from '../src/export/docx.ts'
 import { renderRtf, renderTxt, rtfEscape } from '../src/export/text.ts'
+import { capituloLongo } from './fixtures/capitulo-longo.ts'
 
 // ---------- HTML → blocos ----------
 
@@ -291,4 +292,59 @@ test('RTF escapa acentos e aspas como \\uN e TXT sai na ordem certa', () => {
   const txt = renderTxt(ms)
   assert.ok(txt.indexOf('INTRODUÇÃO') < txt.indexOf('LIVRO I') && txt.indexOf('Cena A') < txt.indexOf('CAPÍTULO 3'))
   assert.ok(!txt.includes('Filho apagado'))
+})
+
+// ---------- viúvas, órfãs e título no pé ----------
+
+type Pos = { pageNumber: number }
+const renderNode = async (def: PdfDefinition) => {
+  const require = createRequire(import.meta.url)
+  const pdfmake = require('pdfmake')
+  const fonts = path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/export/fonts')
+  pdfmake.setUrlAccessPolicy(() => false)
+  pdfmake.addFonts({ [PDF_FONT]: {
+    normal: `${fonts}/EBGaramond-Regular.ttf`, italics: `${fonts}/EBGaramond-Italic.ttf`,
+    bold: `${fonts}/EBGaramond-Bold.ttf`, bolditalics: `${fonts}/EBGaramond-BoldItalic.ttf`,
+  } })
+  return pdfmake.createPdf(def).getBuffer() as Promise<Buffer>
+}
+
+/** Problemas de paginação lidos das posições de linha que o pdfmake gravou nos nós. */
+const problemas = (def: PdfDefinition): string[] => {
+  // Depois de renderizar, o pdfmake troca section: [...] por section: { stack: [...] } (mesmo array).
+  type Sec = { section: Record<string, unknown>[] | { stack: Record<string, unknown>[] } }
+  const nodes = (def.content as unknown as Sec[]).flatMap((s) => (Array.isArray(s.section) ? s.section : s.section.stack))
+  const out: string[] = []
+  nodes.forEach((n, i) => {
+    const pos = (n.positions as Pos[] | undefined) ?? []
+    if (!pos.length || typeof n.id !== 'string') return
+    const pages = [...new Set(pos.map((p) => p.pageNumber))]
+    if (n.id.startsWith('sf-p') && pages.length > 1) {
+      const first = pos.filter((p) => p.pageNumber === pages[0]).length
+      const last = pos.filter((p) => p.pageNumber === pages[pages.length - 1]).length
+      if (first < 2) out.push(`órfã em ${n.id} (p. ${pages[0]})`)
+      if (last < 2) out.push(`viúva em ${n.id} (p. ${pages[pages.length - 1]})`)
+    }
+    if (n.id.startsWith('sf-h')) {
+      const next = (nodes[i + 1]?.positions as Pos[] | undefined) ?? []
+      const page = pos[pos.length - 1].pageNumber
+      const juntas = next.filter((p) => p.pageNumber === page).length
+      if (next.length && juntas < Math.min(2, next.length)) out.push(`título sozinho no pé: ${n.id} (p. ${page})`)
+    }
+  })
+  return out
+}
+
+test('PDF: sem controle há viúvas, órfãs e títulos no pé; com controle, nenhum (8 capítulos gerados)', async () => {
+  const antes: string[] = []
+  for (const semente of [1, 2, 3, 5, 7, 11, 13, 17]) {
+    const sem = buildPdfDefinition(compileManuscript(capituloLongo(semente), 'x'), { widowControl: false })
+    await renderNode(sem)
+    antes.push(...problemas(sem))
+    const com = buildPdfDefinition(compileManuscript(capituloLongo(semente), 'x'))
+    await renderNode(com)
+    assert.deepEqual(problemas(com), [], `semente ${semente}`)
+  }
+  // os dados precisam provocar as três situações, senão o teste não prova nada
+  for (const tipo of ['órfã', 'viúva', 'título sozinho']) assert.ok(antes.some((p) => p.startsWith(tipo)), tipo)
 })

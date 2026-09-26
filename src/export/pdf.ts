@@ -8,6 +8,7 @@
  */
 import type { Align, Block, Run } from './html';
 import type { CompileItem, Epigraph, Manuscript } from './compile';
+import { Pagination } from './pdfPagination';
 
 // pdfmake não tem tipos para a 0.3; o contrato usado aqui é pequeno.
 export type PdfNode = Record<string, unknown>;
@@ -36,7 +37,11 @@ const CONTENT_HEIGHT = PAGE.height - MARGINS[1] - MARGINS[3];
  * 'blocks': sem recuo, com espaço entre parágrafos.
  */
 export type ParagraphStyle = 'book' | 'blocks';
-export interface PdfOptions { paragraphStyle?: ParagraphStyle }
+export interface PdfOptions {
+  paragraphStyle?: ParagraphStyle;
+  /** Controle de viúvas, órfãs e título no pé (padrão: ligado). Desligar serve para comparação. */
+  widowControl?: boolean;
+}
 const BLOCK_GAP = 0.6 * BODY_SIZE;
 
 const runNode = (r: Run): PdfNode => {
@@ -50,7 +55,13 @@ const runNode = (r: Run): PdfNode => {
 
 const runsNode = (runs: Run[]): PdfNode[] | string => (runs.length ? runs.map(runNode) : ' ');
 
-interface BlockOpts { bookIndent: boolean; defaultAlign: Align; style: ParagraphStyle }
+interface BlockOpts {
+  bookIndent: boolean;
+  defaultAlign: Align;
+  style: ParagraphStyle;
+  /** Controle de viúvas, órfãs e título no pé (só no corpo corrido das seções). */
+  pagination?: Pagination;
+}
 
 /**
  * Blocos do corpo. `bookIndent`: aplica o estilo de parágrafo (fora de lista
@@ -66,13 +77,16 @@ const blocksToNodes = (blocks: Block[], opts: BlockOpts): PdfNode[] => {
         const book = opts.style === 'book';
         const indent = opts.bookIndent && book && !afterHeading && (align === 'justify' || align === 'left') && b.runs.length > 0;
         const gap = opts.bookIndent && !book ? { margin: [0, 0, 0, BLOCK_GAP] } : {};
-        out.push({ text: runsNode(b.runs), alignment: align, ...(indent ? { leadingIndent: INDENT } : {}), ...gap });
+        const node: PdfNode = { text: runsNode(b.runs), alignment: align, ...(indent ? { leadingIndent: INDENT } : {}), ...gap };
+        const track = opts.pagination && opts.bookIndent && b.runs.length > 0;
+        // A continuação (depois de uma viúva) segue sem recuo, com o mesmo alinhamento.
+        out.push(track ? opts.pagination!.trackParagraph(node, b.runs, (tail) => ({ text: runsNode(tail), alignment: align, ...gap })) : node);
         afterHeading = b.runs.length === 0;
         break;
       }
       case 'heading': {
         const size = b.level === 1 ? 15 : b.level === 2 ? 13 : 11.5;
-        out.push({
+        const heading: PdfNode = {
           text: runsNode(b.runs),
           fontSize: size,
           bold: b.level !== 3,
@@ -80,7 +94,8 @@ const blocksToNodes = (blocks: Block[], opts: BlockOpts): PdfNode[] => {
           alignment: b.align ?? 'left',
           margin: [0, size * 1.1, 0, size * 0.45],
           headlineLevel: b.level,
-        });
+        };
+        out.push(opts.pagination && opts.bookIndent ? opts.pagination.trackHeading(heading) : heading);
         afterHeading = true;
         break;
       }
@@ -191,14 +206,15 @@ const sectionNodes = (item: CompileItem, opts: BlockOpts): PdfNode[] => {
   const out: PdfNode[] = [];
   const top = item.startsPage ? CHAPTER_DROP : 18;
   if (item.title) {
-    out.push({
+    const title: PdfNode = {
       text: item.title,
       alignment: 'center',
       fontSize: item.depth === 1 ? 13.5 : 12,
       italics: item.depth > 1,
       margin: [0, top, 0, item.epigraph ? 12 : 10],
       ...(item.startsPage ? { pageBreak: 'before' } : {}),
-    });
+    };
+    out.push(opts.pagination && !item.startsPage ? opts.pagination.trackHeading(title) : title);
   } else if (item.startsPage) {
     out.push({ text: '', pageBreak: 'before' });
   }
@@ -214,12 +230,14 @@ const pageNumber = (currentPage: number): PdfNode => ({ text: String(currentPage
  * e Livro/Parte vão em seções sem rodapé (sem número de página); o resto, em
  * seções numeradas. A numeração conta todas as páginas, como no livro impresso.
  */
-const section = (nodes: PdfNode[], numbered: boolean): PdfNode => {
+const section = (nodes: PdfNode[], numbered: boolean, pagination?: Pagination): PdfNode => {
   // A seção já abre página nova: a quebra do primeiro nó geraria página em branco.
-  const [first, ...rest] = nodes;
-  const head = first && first.pageBreak === 'before' ? (({ pageBreak: _drop, ...keep }) => keep)(first) : first;
+  // Tira no próprio objeto (uma cópia perderia o rastreamento da paginação).
+  if (nodes[0]?.pageBreak === 'before') delete nodes[0].pageBreak;
+  const list = nodes.length ? nodes : [{ text: '' }];
+  pagination?.attach(list);
   return {
-    section: head ? [head, ...rest] : [{ text: '' }],
+    section: list,
     pageSize: 'inherit',
     pageMargins: 'inherit',
     footer: numbered ? pageNumber : null,
@@ -227,13 +245,14 @@ const section = (nodes: PdfNode[], numbered: boolean): PdfNode => {
 };
 
 export const buildPdfDefinition = (ms: Manuscript, options: PdfOptions = {}): PdfDefinition => {
-  const opts: BlockOpts = { bookIndent: true, defaultAlign: 'justify', style: options.paragraphStyle ?? 'book' };
+  const pagination = new Pagination();
+  const opts: BlockOpts = { bookIndent: true, defaultAlign: 'justify', style: options.paragraphStyle ?? 'book', pagination };
   const content: PdfNode[] = [
     section([verticallyCentered([{ text: ms.title, fontSize: 26, alignment: 'center', lineHeight: 1.1 }])], false),
   ];
   let body: PdfNode[] = [];
   const flush = () => {
-    if (body.length) content.push(section(body, true));
+    if (body.length) content.push(section(body, true, pagination));
     body = [];
   };
   let partId: string | null = null;
@@ -241,7 +260,8 @@ export const buildPdfDefinition = (ms: Manuscript, options: PdfOptions = {}): Pd
     if (item.kind === 'part') {
       flush();
       partId = item.id;
-      content.push(section(partNodes(item, opts), false));
+      // Página de Livro fica numa célula de tabela: sem controle de viúva ali.
+      content.push(section(partNodes(item, { ...opts, pagination: undefined }), false));
     } else if (item.kind === 'chapter') body.push(...chapterNodes(item, partId, opts));
     else body.push(...sectionNodes(item, opts));
   }
@@ -253,6 +273,7 @@ export const buildPdfDefinition = (ms: Manuscript, options: PdfOptions = {}): Pd
     info: { title: ms.title, creator: 'ScribeFlow', producer: 'ScribeFlow' },
     defaultStyle: { font: PDF_FONT, fontSize: BODY_SIZE, lineHeight: LINE_HEIGHT },
     content,
+    ...(options.widowControl === false ? {} : { pageBreakBefore: pagination.pageBreakBefore }),
   };
 };
 
