@@ -57,3 +57,22 @@ test('ultima linha NAO e atribuicao se terminar em pontuacao, for longa ou for a
 test('pontuacao dentro de aspas no fim tambem conta como fim de frase', () => {
   assert.equal(parseEpigraph('Ele disse\n“fim.”').at(-1)!.kind, 'quote')
 })
+
+test('dialogo: travessao no meio da epigrafe fica como texto; so as linhas finais sao atribuicao', () => {
+  const r = parseEpigraph('— Não sou nada, disse ele.\n— Nunca serei nada.\nE à parte isso tenho em mim todos os sonhos do mundo.\n— Fernando Pessoa')
+  assert.deepEqual(r.map((l) => [l.kind, l.display]), [
+    ['quote', '— Não sou nada, disse ele.'],
+    ['quote', '— Nunca serei nada.'],
+    ['quote', 'E à parte isso tenho em mim todos os sonhos do mundo.'],
+    ['attribution', '— Fernando Pessoa'],
+  ])
+})
+
+test('dialogo sem atribuicao: todas as linhas com travessao ficam como citacao quando nada vem antes', () => {
+  assert.deepEqual(parseEpigraph('— Onde vais?\n— Ao mar.').map((l) => l.kind), ['quote', 'quote'])
+  assert.deepEqual(parseEpigraph('— Sêneca').map((l) => l.kind), ['quote'], 'linha unica e sempre citacao')
+})
+
+test('varias linhas finais com travessao formam a atribuicao', () => {
+  assert.deepEqual(parseEpigraph('Verso.\n— Autor\n— Obra, 1922').map((l) => l.kind), ['quote', 'attribution', 'attribution'])
+})
