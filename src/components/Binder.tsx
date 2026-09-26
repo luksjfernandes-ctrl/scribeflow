@@ -37,6 +37,7 @@ import {
   useSensor,
   useSensors,
   CollisionDetection,
+  Modifier,
   DragEndEvent,
   DragMoveEvent,
   DragStartEvent,
@@ -55,6 +56,14 @@ const binderCollision: CollisionDetection = (args) => {
   const within = pointerWithin(args);
   return within.length > 0 ? within : closestCenter(args);
 };
+
+// Desloca a "fantasma" do arraste para baixo e para a direita do ponteiro,
+// para ela não cobrir a linha-alvo e o indicador de onde vai cair.
+const offsetOverlay: Modifier = ({ transform }) => ({
+  ...transform,
+  x: transform.x + 32,
+  y: transform.y + 22,
+});
 
 interface DropIndicator {
   overId: string;
@@ -549,9 +558,9 @@ export const Binder: React.FC<BinderProps> = ({
             onDragCancel={handleDragCancel}
           >
             {renderChildren(null)}
-            <DragOverlay dropAnimation={null}>
+            <DragOverlay dropAnimation={null} modifiers={[offsetOverlay]}>
               {draggingDoc ? (
-                <div className="binder-item selected shadow-lg rounded opacity-90 pointer-events-none">
+                <div className="binder-item selected inline-flex w-auto max-w-[220px] shadow-lg rounded opacity-80 pointer-events-none">
                   <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">{getDocIcon(draggingDoc)}</div>
                   <span className="flex-1 truncate text-[13px] tracking-tight">{draggingDoc.title}</span>
                 </div>
