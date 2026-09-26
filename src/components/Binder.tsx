@@ -340,40 +340,84 @@ export const Binder: React.FC<BinderProps> = ({
     useSensor(KeyboardSensor)
   );
 
-  const resolveIndicator = (event: DragMoveEvent): DropIndicator | null => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return null;
-    const target = docs.find(d => d.id === over.id);
-    if (!target) return null;
+  // Posição real do ponteiro durante o arraste. O `over` e os retângulos do
+  // dnd-kit ficam defasados enquanto a lista rola sozinha, então o alvo e a
+  // posição são lidos do DOM, embaixo do ponteiro.
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Usa a posição do ponteiro; no teclado, o centro do item arrastado.
-    const pointer = event.activatorEvent as PointerEvent;
-    const translated = active.rect.current.translated;
-    const y = typeof pointer?.clientY === 'number'
-      ? pointer.clientY + event.delta.y
-      : translated ? translated.top + translated.height / 2 : null;
-    if (y === null) return null;
-
-    const position = getDropPosition(y, over.rect, isContainer(target));
-    // Só mostra o indicador onde o drop é válido (nada de pasta dentro de si mesma etc.).
-    const plan = planDrop(docs, active.id as string, target.id, position);
-    return plan ? { overId: target.id, position } : null;
+  const rowAt = (x: number, y: number): HTMLElement | null => {
+    for (const el of document.elementsFromPoint(x, y)) {
+      const row = (el as HTMLElement).closest?.('[data-binder-id]') as HTMLElement | null;
+      if (row) return row;
+    }
+    return null;
   };
 
+  const computeIndicator = (activeId: string, overId: string | null): DropIndicator | null => {
+    let targetId = overId;
+    let y: number | null = null;
+    const pointer = pointerRef.current;
+    if (pointer) {
+      y = pointer.y;
+      const row = rowAt(pointer.x, pointer.y);
+      if (row) targetId = row.dataset.binderId ?? null;
+    }
+    if (!targetId || targetId === activeId) return null;
+    const target = docs.find(d => d.id === targetId);
+    const row = document.querySelector(`[data-binder-id="${CSS.escape(targetId)}"]`);
+    if (!target || !row) return null;
+    const rect = row.getBoundingClientRect();
+    // No teclado (sem ponteiro), usa o meio da linha-alvo.
+    const position = getDropPosition(y ?? rect.top + rect.height / 2, rect, isContainer(target));
+    // Só mostra o indicador onde o drop é válido (nada de pasta dentro de si mesma etc.).
+    return planDrop(docs, activeId, target.id, position) ? { overId: target.id, position } : null;
+  };
+
+  const lastOverRef = useRef<string | null>(null);
+
+  const refreshIndicator = () => {
+    if (!draggingId) return;
+    const next = computeIndicator(draggingId, lastOverRef.current);
+    setDropIndicator(curr =>
+      curr?.overId === next?.overId && curr?.position === next?.position ? curr : next
+    );
+  };
+
+  useEffect(() => {
+    if (!draggingId) return;
+    const onPointerMove = (e: PointerEvent) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const container = scrollRef.current;
+    window.addEventListener('pointermove', onPointerMove, true);
+    // A lista rola sozinha sem o ponteiro mexer: recalcula no scroll também.
+    container?.addEventListener('scroll', refreshIndicator);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove, true);
+      container?.removeEventListener('scroll', refreshIndicator);
+    };
+  });
+
   const handleDragStart = (event: DragStartEvent) => {
+    const start = event.activatorEvent as PointerEvent;
+    pointerRef.current = typeof start?.clientX === 'number' ? { x: start.clientX, y: start.clientY } : null;
+    lastOverRef.current = null;
     setDraggingId(event.active.id as string);
     setDropIndicator(null);
   };
 
   const handleDragMove = (event: DragMoveEvent) => {
-    const next = resolveIndicator(event);
+    lastOverRef.current = (event.over?.id as string) ?? null;
+    const next = computeIndicator(event.active.id as string, lastOverRef.current);
     setDropIndicator(curr =>
       curr?.overId === next?.overId && curr?.position === next?.position ? curr : next
     );
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const indicator = resolveIndicator(event);
+    const indicator = computeIndicator(event.active.id as string, (event.over?.id as string) ?? null);
+    pointerRef.current = null;
     setDraggingId(null);
     setDropIndicator(null);
     if (!indicator) return;
@@ -381,6 +425,7 @@ export const Binder: React.FC<BinderProps> = ({
   };
 
   const handleDragCancel = () => {
+    pointerRef.current = null;
     setDraggingId(null);
     setDropIndicator(null);
   };
@@ -545,7 +590,7 @@ export const Binder: React.FC<BinderProps> = ({
         </div>
       </div>
       
-      <div className="flex-1 overflow-y-auto py-1 scrivener-scrollbar">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-1 scrivener-scrollbar">
         {searchQuery.trim() ? (
           renderSearchResults()
         ) : (
