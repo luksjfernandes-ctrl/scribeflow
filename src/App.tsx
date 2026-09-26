@@ -57,7 +57,8 @@ import { TargetsModal } from './components/TargetsModal';
 import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
-import { supabase } from './lib/supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
+import { SaveQueue, SaveStatus, DocFieldUpdates, mergeServerDocs, shouldRefetchOnRealtime } from './lib/persistence';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
@@ -92,15 +93,19 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  /** Token da sessao em memoria, para o envio sincrono do pagehide. */
+  const accessTokenRef = React.useRef<string | null>(null);
 
   // Supabase Auth Sync
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
@@ -134,20 +139,83 @@ export default function App() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
-  const saveDocTimerRef = React.useRef<NodeJS.Timeout | null>(null);
-  const pendingUpdatesRef = React.useRef<Record<string, Partial<Doc> | any>>({});
   const isLocalOperationRef = React.useRef<boolean>(false);
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'pending' | 'error'>('saved');
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  /** Ultimo `docs` renderizado. A fila de salvamento le daqui o metadata na hora
+   *  de gravar, em vez de depender de um efeito colateral dentro do updater. */
+  const docsRef = React.useRef<Doc[]>([]);
+  docsRef.current = docs;
+  const [saveQueue] = useState(() => new SaveQueue({
+    getDoc: (id) => docsRef.current.find(d => d.id === id),
+    write: async (docId, projectId, payload) => {
+      // O supabase-js devolve { error } em vez de lancar, e um update barrado
+      // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
+      const { data, error } = await supabase
+        .from('docs')
+        .update(payload)
+        .eq('id', docId)
+        .eq('project_id', projectId)
+        .select('id');
+      if (error) return { ok: false, retry: true, error: error.message };
+      if (!data || data.length === 0) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+      return { ok: true };
+    },
+    onStatus: setSaveStatus,
+    onError: (docId, error) => console.error(`[Save] falha ao gravar o doc ${docId}:`, error),
+  }));
 
   useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (saveDocTimerRef.current) {
-        clearTimeout(saveDocTimerRef.current);
-      }
+    // Antes o beforeunload CANCELAVA o timer e jogava fora a ultima edicao.
+    // Agora grava o que estiver pendente e, se ainda nao confirmou, pede para
+    // o navegador avisar antes de sair.
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!saveQueue.hasUnsaved()) return;
+      void saveQueue.flush();
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    const flushNow = () => { if (saveQueue.hasUnsaved()) void saveQueue.flush(); };
+    const handleVisibility = () => { if (document.visibilityState === 'hidden') flushNow(); };
+    // Na descarga, o fetch do flush acima e abortado pelo navegador. O que ainda
+    // nao foi confirmado vai por fetch com keepalive, que sobrevive a pagina.
+    // O keepalive aceita no maximo 64 KB somados; o que passar disso fica so
+    // com o aviso do beforeunload.
+    const handlePageHide = () => {
+      const token = accessTokenRef.current;
+      if (!saveQueue.hasUnsaved() || !token) return;
+      let budget = 60_000;
+      saveQueue.drainForUnload((docId, projectId, payload) => {
+        const body = JSON.stringify(payload);
+        const size = new TextEncoder().encode(body).length;
+        if (size > budget) return false;
+        try {
+          void fetch(`${supabaseUrl}/rest/v1/docs?id=eq.${encodeURIComponent(docId)}&project_id=eq.${encodeURIComponent(projectId)}`, {
+            method: 'PATCH',
+            keepalive: true,
+            headers: {
+              apikey: supabaseAnonKey,
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=minimal',
+            },
+            body,
+          }).catch(() => {});
+        } catch {
+          return false;
+        }
+        budget -= size;
+        return true;
+      });
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, []);
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [saveQueue]);
   
   // Panel Widths
   const [binderWidth, setBinderWidth] = useState(240);
@@ -289,6 +357,8 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
+      // Sem sessao, o RLS barraria o que ainda estiver na fila.
+      if (saveQueue.hasUnsaved()) await saveQueue.flush();
       await supabase.auth.signOut();
       setUser(null);
       setProjects([]);
@@ -531,33 +601,46 @@ export default function App() {
       return;
     }
 
+    // Descarta a resposta de um fetch que foi ultrapassado por outro mais novo.
+    let fetchSeq = 0;
+    let cancelled = false;
     const fetchDocs = async () => {
+      const seq = ++fetchSeq;
       const { data, error } = await supabase
         .from('docs')
         .select('*')
         .eq('project_id', activeProjectId)
         .order('order', { ascending: true });
 
+      if (cancelled || seq !== fetchSeq) return;
       if (error) {
         console.error('[Supabase] Error fetching docs:', error.message);
+        // Na carga inicial do projeto nao ha estado local valido; num refetch,
+        // manter o que ja esta na tela e melhor que trocar por lista vazia.
+        if (seq === 1) setDocs([]);
+        return;
       }
 
-      setDocs(data || [] as Doc[]);
+      // Campo com edicao ainda nao confirmada pelo banco fica com o valor local.
+      setDocs(curr => mergeServerDocs(curr, (data || []) as Doc[], id => saveQueue.dirtyFields(id)));
     };
 
     fetchDocs();
 
     const docsChannel = supabase.channel(`docs-list-${activeProjectId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${activeProjectId}` }, 
-        () => {
-          if (!isLocalOperationRef.current) fetchDocs();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'docs', filter: `project_id=eq.${activeProjectId}` },
+        (payload) => {
+          if (isLocalOperationRef.current) return;
+          // O eco da propria gravacao nao precisa de refetch: o estado local ja e o mais novo.
+          if (shouldRefetchOnRealtime(payload, (id, at) => saveQueue.isOwnEcho(id, at))) fetchDocs();
         })
       .subscribe();
 
     return () => {
+      cancelled = true;
       docsChannel.unsubscribe();
     };
-  }, [user, activeProjectId]);
+  }, [user, activeProjectId, saveQueue]);
 
   const { manuscript: manuscriptFolder, trash: trashFolder, characters: charactersFolder, places: placesFolder, research: researchFolder } = useStructuralFolders(docs);
 
@@ -885,33 +968,6 @@ export default function App() {
     ));
   };
 
-  const debouncedSaveDoc = React.useCallback((id: string, updates: any) => {
-    setSaveStatus('pending');
-    
-    pendingUpdatesRef.current[id] = {
-      ...(pendingUpdatesRef.current[id] || {}),
-      ...updates
-    };
-
-    if (saveDocTimerRef.current) clearTimeout(saveDocTimerRef.current);
-    saveDocTimerRef.current = setTimeout(async () => {
-      const docsToSave = { ...pendingUpdatesRef.current };
-      pendingUpdatesRef.current = {};
-      
-      let allSuccess = true;
-      for (const [docId, mergedUpdates] of Object.entries(docsToSave)) {
-         try {
-           await supabase.from('docs').update({ ...mergedUpdates, updated_at: Date.now() }).eq('id', docId).eq('project_id', activeProjectId);
-         } catch (e) {
-           allSuccess = false;
-           console.error("Debounced save error:", e);
-         }
-      }
-      setSaveStatus(allSuccess ? 'saved' : 'error');
-      saveDocTimerRef.current = null;
-    }, 1500);
-  }, [activeProjectId]);
-
   const handleUpdateDoc = async (id: string, updates: Partial<Doc>) => {
     // Validate Updates
     try {
@@ -925,7 +981,8 @@ export default function App() {
     setDocs(curr => curr.map(d => d.id === id ? { ...d, ...updates, updated_at } : d));
 
     if (user && activeProjectId) {
-      debouncedSaveDoc(id, updates);
+      const { metadata, ...fields } = updates;
+      saveQueue.enqueue(id, activeProjectId, { fields: fields as DocFieldUpdates, metadataPatch: metadata });
     }
   };
 
@@ -956,7 +1013,9 @@ export default function App() {
     if (globalEditor && selectedDoc && selectedDoc.type !== 'folder') {
       const currentContent = globalEditor.getHTML();
       if (selectedDoc.content !== currentContent) {
-        globalEditor.commands.setContent(selectedDoc.content);
+        // emitUpdate: false — no TipTap v3 o setContent dispara onUpdate por
+        // padrao, e cada troca de capitulo virava uma gravacao do HTML normalizado.
+        globalEditor.commands.setContent(selectedDoc.content, { emitUpdate: false });
       }
     }
   }, [selectedDoc?.id, globalEditor]);
@@ -983,23 +1042,14 @@ export default function App() {
 
   const handleUpdateMetadata = async (id: string, metadata_updates: Partial<DocumentMetadata>) => {
     const updated_at = Date.now();
-    let newMetadata: DocumentMetadata | null = null;
-    setDocs(curr => {
-      const updatedDocs = curr.map(d => {
-        if (d.id === id) {
-          const m = { ...d.metadata, ...metadata_updates, updated_at };
-          newMetadata = m;
-          return { ...d, metadata: m, updated_at };
-        }
-        return d;
-      });
-      return updatedDocs;
-    });
+    const patch = { ...metadata_updates, updated_at };
+    setDocs(curr => curr.map(d => d.id === id ? { ...d, metadata: { ...d.metadata, ...patch }, updated_at } : d));
 
-    if (user && activeProjectId && newMetadata) {
-      isLocalOperationRef.current = true;
-      debouncedSaveDoc(id, { metadata: newMetadata });
-      setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
+    // Antes o metadata completo era capturado DENTRO do updater acima; quando o
+    // React adiava o updater (ex.: outro setDocs no mesmo evento), a variavel
+    // ficava null e o save nunca era enfileirado. A fila guarda so o patch.
+    if (user && activeProjectId) {
+      saveQueue.enqueue(id, activeProjectId, { metadataPatch: patch });
     }
   };
 
