@@ -3,13 +3,22 @@ import { supabase } from '../lib/supabase';
 import { motion, AnimatePresence } from 'motion/react';
 import { LogIn, UserPlus, Mail, Lock, AlertCircle, BookOpen, PenTool } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { recoveryLinkError, translateAuthError } from '../lib/password';
+import { NewPasswordForm } from './NewPasswordForm';
 
-export function Auth() {
+interface AuthProps {
+  /** Aberto pelo link de "Esqueci a senha" (evento PASSWORD_RECOVERY): pede a nova senha. */
+  recovery?: boolean;
+  onRecoveryDone?: () => void;
+}
+
+export function Auth({ recovery = false, onRecoveryDone }: AuthProps = {}) {
   const [isLogin, setIsLogin] = useState(true);
+  const [isForgot, setIsForgot] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => (typeof window !== 'undefined' ? recoveryLinkError(window.location.hash) : null));
   const [message, setMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -19,7 +28,12 @@ export function Auth() {
     setMessage(null);
 
     try {
-      if (isLogin) {
+      if (isForgot) {
+        // O Supabase responde igual exista ou não a conta, para não revelar e-mails.
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+        if (error) throw error;
+        setMessage('Se houver uma conta com esse e-mail, enviamos um link para definir uma nova senha. Abra o link neste ou em outro navegador.');
+      } else if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -34,7 +48,7 @@ export function Auth() {
         setMessage('Verifique seu e-mail para confirmar o cadastro!');
       }
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Erro ao processar autenticação';
+      const errorMessage = err instanceof Error ? translateAuthError(err.message) : 'Erro ao processar autenticação';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -66,6 +80,16 @@ export function Auth() {
             </p>
           </div>
 
+          {recovery ? (
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Definir nova senha</h2>
+                <p className="text-xs text-gray-400 mt-1">Você entrou pelo link de recuperação. Escolha a nova senha para continuar.</p>
+              </div>
+              <NewPasswordForm onDone={onRecoveryDone} submitLabel="Salvar e entrar" />
+            </div>
+          ) : (
+          <>
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 ml-1">E-mail</label>
@@ -82,6 +106,7 @@ export function Auth() {
               </div>
             </div>
 
+            {!isForgot && (
             <div>
               <label className="block text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 ml-1">Senha</label>
               <div className="relative group">
@@ -96,6 +121,18 @@ export function Auth() {
                 />
               </div>
             </div>
+            )}
+            {isLogin && !isForgot && (
+              <div className="-mt-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => { setIsForgot(true); setError(null); setMessage(null); }}
+                  className="text-xs text-gray-500 hover:text-blue-400 transition-colors"
+                >
+                  Esqueci a senha
+                </button>
+              </div>
+            )}
 
             <AnimatePresence mode="wait">
               {error && (
@@ -136,25 +173,35 @@ export function Auth() {
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  {isLogin ? <LogIn size={18} /> : <UserPlus size={18} />}
-                  <span>{isLogin ? 'Entrar no Santuário' : 'Criar minha conta'}</span>
+                  {isForgot ? <Mail size={18} /> : isLogin ? <LogIn size={18} /> : <UserPlus size={18} />}
+                  <span>{isForgot ? 'Enviar link de nova senha' : isLogin ? 'Entrar no Santuário' : 'Criar minha conta'}</span>
                 </>
               )}
             </button>
           </form>
 
-          <div className="mt-8 text-center">
+          </>
+          )}
+
+          {!recovery && <div className="mt-8 text-center">
             <button
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => {
+                if (isForgot) setIsForgot(false);
+                else setIsLogin(!isLogin);
+                setError(null);
+                setMessage(null);
+              }}
               className="text-gray-500 hover:text-white text-xs font-medium transition-colors"
             >
-              {isLogin ? (
+              {isForgot ? (
+                <span>Lembrou a senha? <span className="text-blue-400">Voltar ao login</span></span>
+              ) : isLogin ? (
                 <span>Não tem uma conta? <span className="text-blue-400">Cadastre-se agora</span></span>
               ) : (
                 <span>Já possui acesso? <span className="text-blue-400">Faça login</span></span>
               )}
             </button>
-          </div>
+          </div>}
         </div>
 
         <p className="mt-8 text-center text-gray-600 text-[10px] uppercase tracking-widest font-bold">

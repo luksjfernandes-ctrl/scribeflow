@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { ProjectSettings } from '../types';
+import { NewPasswordForm } from './NewPasswordForm';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -54,6 +55,13 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
               onChange={(e) => onUpdateSettings({ session_target: parseInt(e.target.value) || 0 })}
             />
           </div>
+
+          <details className="border-t border-[#333] pt-3">
+            <summary className="text-sm font-medium text-gray-300 cursor-pointer select-none">Trocar senha</summary>
+            <div className="pt-3">
+              <NewPasswordForm variant="settings" submitLabel="Trocar senha" />
+            </div>
+          </details>
 
           {/* PAPER WIDTH escondido: o valor era gravado e o editor nunca o aplicava
               (largura fixa em Editor.tsx, que é da sf-editor). Volta quando o editor ler paper_width. */}

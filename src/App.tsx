@@ -68,6 +68,10 @@ import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
+import { isRecoveryUrl } from './lib/password';
+
+/** Lido no carregamento, antes de o supabase-js consumir o hash do link de recuperação. */
+const OPENED_FROM_RECOVERY_LINK = typeof window !== 'undefined' && isRecoveryUrl(window.location.hash);
 
 const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
   const manuscriptId = crypto.randomUUID();
@@ -95,18 +99,24 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  /** Entrou pelo link de "Esqueci a senha": pede a nova senha antes de abrir o app. */
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(OPENED_FROM_RECOVERY_LINK);
   /** Token da sessao em memoria, para o envio sincrono do pagehide. */
   const accessTokenRef = React.useRef<string | null>(null);
 
   // Supabase Auth Sync
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      // Link de recuperação inválido ou expirado: não há sessão, volta ao login comum.
+      if (!session) setIsPasswordRecovery(false);
       accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setIsPasswordRecovery(true);
+      if (event === 'SIGNED_OUT') setIsPasswordRecovery(false);
       accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
@@ -1216,6 +1226,11 @@ export default function App() {
   // 2. Redirect to Login if no Session
   if (!user) {
     return <Auth />;
+  }
+
+  // 2b. Link de recuperação: a sessão já existe, mas falta definir a nova senha.
+  if (isPasswordRecovery) {
+    return <Auth recovery onRecoveryDone={() => setIsPasswordRecovery(false)} />;
   }
 
   // 3. Optional: Initial Workspace Loading (if user is authenticated but project metadata is still pending)
