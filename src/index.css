@@ -592,6 +592,73 @@
   line-height: 1.6;
 }
 
+/* Listas: o preflight do Tailwind zera list-style, e sem isto os botoes de
+   lista pareciam nao fazer nada. */
+.editor-page ul,
+.editor-page ol {
+  margin: 0.4em 0;
+  padding-left: 2em;
+}
+.editor-page ul { list-style: disc; }
+.editor-page ol { list-style: decimal; }
+.editor-page li p { text-indent: 0; }
+
+/* Subtitulo do capitulo como epigrafe de livro (texto puro em metadata.subtitle).
+   A exportacao deve reproduzir: bloco recuado 35% a esquerda (largura 65% da
+   coluna de texto), 0,9 do corpo, italico, justificado, entrelinha 1,55;
+   linha iniciada por travessao alinhada a direita, sem italico; 2,5em de
+   espaco antes do texto. */
+.epigraph-wrap {
+  position: relative;
+  margin: 0 0 2.5em 35%;
+}
+.epigraph {
+  font-style: italic;
+  font-size: 0.9em;
+  line-height: 1.55;
+  text-align: justify;
+  hyphens: auto;
+  color: var(--text-secondary);
+}
+.epigraph-input {
+  display: block;
+  width: 100%;
+  min-height: 1.55em;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text-primary);
+}
+.epigraph-input::placeholder { color: var(--text-secondary); opacity: 0.5; }
+.epigraph-input-idle {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.epigraph-view { cursor: text; }
+.editor-page .epigraph-view p {
+  margin: 0;
+  text-indent: 0;
+}
+.editor-page .epigraph-view .epigraph-attribution {
+  margin-top: 0.4em;
+  text-align: right;
+  font-style: normal;
+}
+.editor-page .epigraph-view .epigraph-blank { height: 0.8em; }
+.editor-page .epigraph-view .epigraph-placeholder { text-align: left; opacity: 0.45; }
+
+/* Com o foco no titulo ou no subtitulo a barra nao age (so formata o corpo). */
+.format-bar-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+
 .editor-footer {
   display: flex;
   align-items: center;
