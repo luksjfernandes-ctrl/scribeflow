@@ -7,11 +7,15 @@ import { compileManuscript, safeFileName } from './compile';
 import { renderRtf, renderTxt } from './text';
 
 export type ExportFormat = 'pdf' | 'docx' | 'rtf' | 'txt' | 'epub';
+/** Tamanho da página do PDF e do DOCX. Sem valor: cada formato usa o seu (PDF 14 × 21, DOCX A4). */
+export type ExportPageSize = '14x21' | 'a4';
 
 export interface ExportOptions {
   /** Estilo de parágrafo: 'book' (padrão, recuo de primeira linha) ou 'blocks'.
    *  Vem de `project.settings.paragraph_style`, a opção de Ajustes do editor. */
   paragraphStyle?: 'book' | 'blocks';
+  /** Escolha do diálogo de exportação; RTF e TXT não têm página. */
+  pageSize?: ExportPageSize;
 }
 
 export class NothingToExportError extends Error {

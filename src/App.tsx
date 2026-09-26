@@ -63,7 +63,7 @@ import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
-import { exportManuscript, ExportFormat, NothingToExportError } from './export';
+import { exportManuscript, ExportFormat, ExportOptions, NothingToExportError } from './export';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
@@ -243,12 +243,12 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
 
-  const handleExport = async (format: string) => {
+  const handleExport = async (format: string, extra: Pick<ExportOptions, 'pageSize'> = {}) => {
     // A montagem (árvore do binder, lixeira, compilação) e os formatos ficam em src/export.
     try {
       // Mesma opção de Ajustes que o editor usa (Livro, o padrão, ou Blocos).
       const paragraphStyle = project?.settings?.paragraph_style === 'blocks' ? 'blocks' : 'book';
-      await exportManuscript(format as ExportFormat, docs, project?.name, { paragraphStyle });
+      await exportManuscript(format as ExportFormat, docs, project?.name, { paragraphStyle, ...extra });
     } catch (err) {
       if (err instanceof NothingToExportError) {
         alert("Nenhum documento do Manuscript está marcado para compilar. Marque 'Include in Compile' no Inspector dos documentos que devem sair.");

@@ -4,8 +4,9 @@
  * corpo com a formatação do editor. Tudo por estilos nomeados, para quem abrir
  * no Word poder ajustar o livro inteiro mudando um estilo.
  *
- * O DOCX sai em A4 (para editar), com margens de livro: mancha de ~13,4 cm, que
- * dá ~70 caracteres por linha em Palatino 12. O PDF sai em 14 × 21 cm.
+ * O DOCX sai em A4 por padrão (para editar), com margens de livro: mancha de
+ * ~13,4 cm, que dá ~70 caracteres por linha em Palatino 12. Pelo diálogo de
+ * exportação dá para pedir 14 × 21 cm, com as margens do PDF.
  */
 import {
   AlignmentType,
@@ -155,13 +156,24 @@ const numberedFooter = () =>
 
 const emptyFooter = () => new Footer({ children: [new Paragraph({ children: [] })] });
 
-const PAGE = {
-  size: { width: cm(21), height: cm(29.7) },
-  margin: { top: cm(3), bottom: cm(3), left: cm(3.8), right: cm(3.8), footer: cm(1.5) },
-};
+/** Tamanho da página: 'a4' (padrão do DOCX) ou '14x21' (o do PDF, com as mesmas margens). */
+export type PageSizeId = '14x21' | 'a4';
 
-/** Altura útil da página, em twips. */
-const CONTENT_HEIGHT = PAGE.size.height - PAGE.margin.top - PAGE.margin.bottom;
+interface Geometry {
+  page: { size: { width: number; height: number }; margin: { top: number; bottom: number; left: number; right: number; footer: number } };
+  /** Altura útil da página, em twips. */
+  contentHeight: number;
+  /** Espaço antes do título de capítulo, para o topo dele ficar a ~1/3 da página. */
+  chapterBefore: number;
+  /** Recuo da epígrafe à esquerda. */
+  epigraphIndent: number;
+}
+
+const geometry = (size: PageSizeId = 'a4'): Geometry => {
+  const [w, h, top, bottom, side, footer, epigraph] = size === '14x21' ? [14, 21, 1.8, 2.2, 1.9, 1, 3.5] : [21, 29.7, 3, 3, 3.8, 1.5, 5];
+  const page = { size: { width: cm(w), height: cm(h) }, margin: { top: cm(top), bottom: cm(bottom), left: cm(side), right: cm(side), footer: cm(footer) } };
+  return { page, contentHeight: page.size.height - page.margin.top - page.margin.bottom, chapterBefore: cm(h / 3 - top), epigraphIndent: cm(epigraph) };
+};
 /** Altura de uma linha em twips: corpo × 1,2 (entrelinha simples da Palatino) × fator de entrelinha. */
 const lineTw = (sizePt: number, factor = LINE / 240) => sizePt * 1.2 * factor * 20;
 /** Linhas que um texto ocupa, estimando a largura média do caractere em ~0,45em. */
@@ -173,15 +185,15 @@ const wrappedLines = (text: string, sizePt: number, widthTw: number) =>
  * O `w:vAlign` de seção seria o jeito do Word, mas o LibreOffice e o Pages o
  * ignoram; espaço antes funciona em todos. A altura é estimada (±1 linha).
  */
-const centeredBefore = (blockTw: number) => Math.max(0, Math.round((CONTENT_HEIGHT - blockTw) / 2));
+const centeredBefore = (geo: Geometry, blockTw: number) => Math.max(0, Math.round((geo.contentHeight - blockTw) / 2));
 
-const partBlockHeight = (item: CompileItem): number => {
-  const width = PAGE.size.width - PAGE.margin.left - PAGE.margin.right;
+const partBlockHeight = (item: CompileItem, geo: Geometry): number => {
+  const width = geo.page.size.width - geo.page.margin.left - geo.page.margin.right;
   let h = 0;
   if (item.label) h += lineTw(12) + cm(0.3);
   h += wrappedLines(item.name || item.title, 28, width) * lineTw(28, 1) + cm(1.2);
   if (item.epigraph) {
-    const epWidth = width - cm(5);
+    const epWidth = width - geo.epigraphIndent;
     for (const line of item.epigraph.lines) {
       h += line.kind === 'attribution' ? cm(0.2) + lineTw(10.5) : wrappedLines(line.display || ' ', 10.5, epWidth) * lineTw(10.5, 276 / 240);
     }
@@ -196,23 +208,23 @@ const partBlockHeight = (item: CompileItem): number => {
  * própria, com o bloco centralizado na vertical e sem número; o corpo em seções
  * numeradas. A numeração continua corrida de uma seção para a outra.
  */
-const newSection = (children: Paragraph[], kind: 'centered' | 'body', first: boolean): ISectionOptions => ({
+const newSection = (children: Paragraph[], kind: 'centered' | 'body', first: boolean, geo: Geometry): ISectionOptions => ({
   properties: {
     ...(first ? {} : { type: SectionType.NEXT_PAGE }),
-    page: PAGE,
+    page: geo.page,
   },
   footers: { default: kind === 'centered' ? emptyFooter() : numberedFooter() },
   children,
 });
 
 /** `atSectionStart`: a seção já abre página nova; a quebra do capítulo geraria página em branco. */
-const itemParagraphs = (item: CompileItem, ctx: BodyCtx, atSectionStart: boolean): Paragraph[] => {
+const itemParagraphs = (item: CompileItem, ctx: BodyCtx, atSectionStart: boolean, geo: Geometry): Paragraph[] => {
   const out: Paragraph[] = [];
   const brk = !atSectionStart;
   if (item.kind === 'part') {
     // Bloco que ocupa quase a página toda (corpo longo) começa no alto, sem centralizar.
-    const height = partBlockHeight(item);
-    const before = height < CONTENT_HEIGHT * 0.8 ? centeredBefore(height) : 0;
+    const height = partBlockHeight(item, geo);
+    const before = height < geo.contentHeight * 0.8 ? centeredBefore(geo, height) : 0;
     const top = before ? { spacing: { before } } : {};
     if (item.label) out.push(new Paragraph({ style: STYLE.partLabel, ...top, children: [new TextRun(item.label)] }));
     out.push(new Paragraph({ style: STYLE.partTitle, ...(item.label ? {} : top), children: [new TextRun(item.name || item.title)] }));
@@ -234,32 +246,33 @@ const itemParagraphs = (item: CompileItem, ctx: BodyCtx, atSectionStart: boolean
  * 'blocks': sem recuo e com espaço depois de cada parágrafo.
  */
 export type ParagraphStyle = 'book' | 'blocks';
-export interface DocxOptions { paragraphStyle?: ParagraphStyle }
+export interface DocxOptions { paragraphStyle?: ParagraphStyle; pageSize?: PageSizeId }
 
 export const buildDocx = (ms: Manuscript, options: DocxOptions = {}): Document => {
   const book = (options.paragraphStyle ?? 'book') === 'book';
   const bodyParagraph = book
     ? { alignment: AlignmentType.JUSTIFIED, indent: { firstLine: BOOK_INDENT }, spacing: { after: 0 } }
     : { alignment: AlignmentType.JUSTIFIED, indent: { firstLine: 0 }, spacing: { after: 0.6 * BODY_PT * 20 } };
+  const geo = geometry(options.pageSize);
   const ctx: BodyCtx = { listCounter: { n: 0 } };
   const sections: ISectionOptions[] = [
     newSection([new Paragraph({
       style: STYLE.bookTitle,
-      spacing: { before: centeredBefore(lineTw(30, 1)) },
+      spacing: { before: centeredBefore(geo, lineTw(30, 1)) },
       children: [new TextRun(ms.title)],
-    })], 'centered', true),
+    })], 'centered', true, geo),
   ];
   let body: Paragraph[] = [];
   const flush = () => {
-    if (body.length) sections.push(newSection(body, 'body', false));
+    if (body.length) sections.push(newSection(body, 'body', false, geo));
     body = [];
   };
   for (const item of ms.items) {
     if (item.kind === 'part') {
       flush();
-      sections.push(newSection(itemParagraphs(item, ctx, true), 'centered', false));
+      sections.push(newSection(itemParagraphs(item, ctx, true, geo), 'centered', false, geo));
     } else {
-      body.push(...itemParagraphs(item, ctx, body.length === 0));
+      body.push(...itemParagraphs(item, ctx, body.length === 0, geo));
     }
   }
   flush();
@@ -272,9 +285,9 @@ export const buildDocx = (ms: Manuscript, options: DocxOptions = {}): Document =
       default: {
         document: { run: { ...serif, size: BODY_PT * PT }, paragraph: { spacing: { line: LINE, before: 0, after: 0 } } },
         heading1: {
-          // Capítulo afundado ~1/3 da página: 3 cm de margem + 6,9 cm antes = 9,9 cm (29,7 / 3).
+          // Capítulo afundado ~1/3 da página: no A4, 3 cm de margem + 6,9 cm antes = 9,9 cm (29,7 / 3).
           run: { ...serif, size: 22 * PT, bold: false, color: '000000' },
-          paragraph: { alignment: AlignmentType.CENTER, spacing: { before: cm(6.9), after: cm(1.6), line: 240 }, keepNext: true },
+          paragraph: { alignment: AlignmentType.CENTER, spacing: { before: geo.chapterBefore, after: cm(1.6), line: 240 }, keepNext: true },
         },
         heading2: {
           run: { ...serif, size: 14 * PT, bold: false, color: '000000' },
@@ -296,8 +309,8 @@ export const buildDocx = (ms: Manuscript, options: DocxOptions = {}): Document =
         { id: STYLE.partLabel, name: 'Livro/Parte: rótulo', basedOn: 'Normal', next: STYLE.partTitle, run: { size: 12 * PT, allCaps: true, characterSpacing: 60 }, paragraph: { alignment: AlignmentType.CENTER, spacing: { after: cm(0.3) }, keepNext: true } },
         { id: STYLE.partTitle, name: 'Livro/Parte: título', basedOn: 'Normal', next: STYLE.epigraph, run: { size: 28 * PT }, paragraph: { alignment: AlignmentType.CENTER, spacing: { after: cm(1.2), line: 240 }, keepNext: true, outlineLevel: 0 } },
         // Epígrafe: bloco recuado, alinhado à esquerda (justificar poucas palavras abre buracos), corpo menor.
-        { id: STYLE.epigraph, name: 'Epígrafe', basedOn: 'Normal', next: STYLE.epigraph, quickFormat: true, run: { italics: true, size: 10.5 * PT }, paragraph: { alignment: AlignmentType.LEFT, indent: { left: cm(5) }, spacing: { line: 276 }, keepNext: true, keepLines: true } },
-        { id: STYLE.attribution, name: 'Epígrafe: autor', basedOn: 'Normal', next: STYLE.bodyFirst, run: { size: 10.5 * PT, italics: false, smallCaps: true }, paragraph: { alignment: AlignmentType.RIGHT, indent: { left: cm(5) }, spacing: { before: cm(0.2), after: EPIGRAPH_AFTER }, keepNext: true } },
+        { id: STYLE.epigraph, name: 'Epígrafe', basedOn: 'Normal', next: STYLE.epigraph, quickFormat: true, run: { italics: true, size: 10.5 * PT }, paragraph: { alignment: AlignmentType.LEFT, indent: { left: geo.epigraphIndent }, spacing: { line: 276 }, keepNext: true, keepLines: true } },
+        { id: STYLE.attribution, name: 'Epígrafe: autor', basedOn: 'Normal', next: STYLE.bodyFirst, run: { size: 10.5 * PT, italics: false, smallCaps: true }, paragraph: { alignment: AlignmentType.RIGHT, indent: { left: geo.epigraphIndent }, spacing: { before: cm(0.2), after: EPIGRAPH_AFTER }, keepNext: true } },
         { id: STYLE.quote, name: 'Citação', basedOn: 'Normal', next: STYLE.body, quickFormat: true, run: { size: 11 * PT }, paragraph: { alignment: AlignmentType.JUSTIFIED, indent: { left: cm(1.5), right: cm(1) }, spacing: { before: cm(0.25), after: cm(0.25), line: 288 } } },
         { id: STYLE.rule, name: 'Separador', basedOn: 'Normal', next: STYLE.bodyFirst, paragraph: { alignment: AlignmentType.CENTER, spacing: { before: cm(0.35), after: cm(0.35) } } },
       ],
