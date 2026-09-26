@@ -34,9 +34,11 @@ export function CompositionSettings({ prefs, onUpdate }: CompositionSettingsProp
   ];
 
   return (
-    <div className="fixed bottom-8 right-8 z-50">
+    <div ref={panelRef} className="fixed bottom-8 right-8 z-50">
       <button 
         onClick={() => setIsOpen(!isOpen)}
+        title="Configurações de foco"
+        aria-expanded={isOpen}
         className={cn(
           "p-3 rounded-full transition-all duration-300 shadow-lg",
           isOpen ? "bg-[#B8A04A] text-black" : "bg-white/5 text-gray-500 hover:text-white/80 hover:bg-white/10 opacity-20 hover:opacity-80"
@@ -48,7 +50,6 @@ export function CompositionSettings({ prefs, onUpdate }: CompositionSettingsProp
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            ref={panelRef}
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}

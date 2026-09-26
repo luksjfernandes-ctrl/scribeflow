@@ -1,11 +1,15 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { EditorContent, Editor } from '@tiptap/react';
-import { X, Settings as SettingsIcon } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
+import { X } from 'lucide-react';
+import { motion } from 'motion/react';
 import { CompositionSettings } from './CompositionSettings';
 import { useCompositionPrefs } from '../hooks/useCompositionPrefs';
-import { cn } from '../lib/utils';
+import { computeTypewriterScroll } from '../lib/typewriterScroll';
 import '../styles/composition.css';
+
+const typewriterKey = new PluginKey('typewriterScroll');
 
 interface CompositionModeProps {
   editor: Editor | null;
@@ -15,6 +19,7 @@ interface CompositionModeProps {
 
 export function CompositionMode({ editor, onExit, title }: CompositionModeProps) {
   const { prefs, updatePrefs } = useCompositionPrefs();
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -24,36 +29,61 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onExit]);
 
-  // Typewriter Scroll Logic
+  // Rolagem de máquina de escrever: mantém o CURSOR numa faixa central do
+  // overlay. Entra pelo handleScrollToSelection do ProseMirror, que só é
+  // chamado em transações marcadas com scrollIntoView (digitar, Enter, colar,
+  // setas). Clique e seleção com o mouse não passam por aqui, então não
+  // arrastam a tela. Retornar true suprime a rolagem nativa, para as duas não
+  // brigarem. O editor é compartilhado com o modo normal: o plugin só existe
+  // enquanto o Compose está montado.
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || editor.isDestroyed) return;
 
-    const handleUpdate = () => {
-      const { selection } = editor.state;
-      if (!selection.empty) return;
-
-      // Ensure the cursor stays centered
-      setTimeout(() => {
-        const cursor = document.querySelector('.ProseMirror-focused');
-        if (cursor) {
-          cursor.scrollIntoView({
-            behavior: 'smooth',
-            block: 'center',
-          });
-        }
-      }, 10);
+    const posicionarCursor = (view: EditorView) => {
+      const overlay = overlayRef.current;
+      if (!overlay) return false;
+      const caret = view.coordsAtPos(view.state.selection.head);
+      const rect = overlay.getBoundingClientRect();
+      const alvo = computeTypewriterScroll({
+        caretTop: caret.top,
+        caretBottom: caret.bottom,
+        containerTop: rect.top,
+        containerHeight: overlay.clientHeight,
+        scrollTop: overlay.scrollTop,
+        maxScrollTop: overlay.scrollHeight - overlay.clientHeight,
+      });
+      // Sempre instantâneo: nada de smooth a cada tecla (e respeita
+      // prefers-reduced-motion por construção).
+      if (alvo !== null) overlay.scrollTop = alvo;
+      return true;
     };
 
-    editor.on('selectionUpdate', handleUpdate);
+    editor.registerPlugin(
+      new Plugin({
+        key: typewriterKey,
+        props: { handleScrollToSelection: posicionarCursor },
+      })
+    );
+
+    // Ao entrar: foco no texto (cursor visível) sem a rolagem nativa, e o
+    // cursor já posicionado na faixa.
+    const raf = requestAnimationFrame(() => {
+      if (editor.isDestroyed) return;
+      editor.commands.focus(undefined, { scrollIntoView: false });
+      posicionarCursor(editor.view);
+    });
+
     return () => {
-      editor.off('selectionUpdate', handleUpdate);
+      cancelAnimationFrame(raf);
+      if (!editor.isDestroyed) editor.unregisterPlugin(typewriterKey);
     };
   }, [editor]);
 
   if (!editor) return null;
 
   return (
-    <motion.div 
+    <motion.div
+      ref={overlayRef}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -70,7 +100,7 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
       } as React.CSSProperties}
     >
       {/* Immersive Header (Auto-hiding) */}
-      <div className="fixed top-0 left-0 right-0 p-8 flex items-center justify-between opacity-0 hover:opacity-100 transition-opacity duration-500 z-10 pointer-events-none">
+      <div className="fixed top-0 left-0 right-0 p-8 flex items-center justify-between opacity-40 hover:opacity-100 transition-opacity duration-500 z-10 pointer-events-none">
         <div className="flex items-center gap-4">
           <h2 className="text-xs font-mono uppercase tracking-[0.3em] text-[#B8A04A]/40">{title}</h2>
         </div>
@@ -100,7 +130,7 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
       <CompositionSettings prefs={prefs} onUpdate={updatePrefs} />
 
       {/* Floating Meta (Auto-hiding) */}
-      <div className="fixed bottom-10 left-10 opacity-0 hover:opacity-100 transition-opacity duration-700 pointer-events-none">
+      <div className="fixed bottom-10 left-10 opacity-0 hover:opacity-100 transition-opacity duration-700">
         <p className="text-[9px] font-mono text-gray-700 uppercase tracking-widest font-bold">
           {editor.storage.characterCount.words()} palavras · ScribeFlow Sanctuary
         </p>
