@@ -40,6 +40,7 @@ import {
   Modifier,
   DragEndEvent,
   DragMoveEvent,
+  DragOverEvent,
   DragStartEvent,
 } from '@dnd-kit/core';
 import {
@@ -407,13 +408,19 @@ export const Binder: React.FC<BinderProps> = ({
     setDropIndicator(null);
   };
 
-  const handleDragMove = (event: DragMoveEvent) => {
+  const updateIndicator = (event: DragMoveEvent | DragOverEvent) => {
     lastOverRef.current = (event.over?.id as string) ?? null;
     const next = computeIndicator(event.active.id as string, lastOverRef.current);
     setDropIndicator(curr =>
       curr?.overId === next?.overId && curr?.position === next?.position ? curr : next
     );
   };
+
+  // No `onDragMove` o `over` ainda é o do passo anterior (o dnd-kit só o troca
+  // depois, no `onDragOver`). Com o mouse o alvo vem do DOM e isso não pesa;
+  // no teclado não há ponteiro, então o indicador ficava um passo atrás.
+  const handleDragMove = updateIndicator;
+  const handleDragOver = updateIndicator;
 
   const handleDragEnd = (event: DragEndEvent) => {
     const indicator = computeIndicator(event.active.id as string, (event.over?.id as string) ?? null);
@@ -599,6 +606,7 @@ export const Binder: React.FC<BinderProps> = ({
             collisionDetection={binderCollision}
             onDragStart={handleDragStart}
             onDragMove={handleDragMove}
+            onDragOver={handleDragOver}
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}
           >
