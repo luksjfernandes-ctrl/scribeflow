@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
+import { cleanEnv } from './env';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// trim: um "\n" no fim da chave derrubava o realtime em produção (ver lib/env.ts).
+const supabaseUrl = cleanEnv(import.meta.env.VITE_SUPABASE_URL);
+const supabaseAnonKey = cleanEnv(import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 // Falha explicita: passar undefined adiante faz o supabase-js lancar
 // "supabaseUrl is required" e a pagina abre em branco, sem pista da causa.

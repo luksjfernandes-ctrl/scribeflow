@@ -1,13 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X, FileText, Download, FileCode, FileType } from 'lucide-react';
+import type { ExportOptions, ExportPageSize } from '../export';
 
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onExport: (format: string) => void;
+  onExport: (format: string, options: Pick<ExportOptions, 'pageSize'>) => void;
 }
 
+/** '' = o padrão de cada formato (PDF 14 × 21, Word A4), o comportamento de antes da escolha. */
+const PAGE_SIZES: { id: '' | ExportPageSize; label: string }[] = [
+  { id: '', label: 'Padrão do formato' },
+  { id: '14x21', label: '14 × 21 cm (livro)' },
+  { id: 'a4', label: 'A4' },
+];
+
 export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
+  const [pageSize, setPageSize] = useState<'' | ExportPageSize>('');
   if (!isOpen) return null;
 
   const formats = [
@@ -30,12 +39,27 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
         
         <div className="p-4 bg-[#1a1a1a]">
           <p className="text-sm text-gray-400 mb-4">Selecione um formato para exportar seu manuscrito. Todos os documentos marcados para inclusão serão processados.</p>
+
+          <label className="flex items-center justify-between gap-3 mb-1 text-sm text-gray-300">
+            <span className="shrink-0 whitespace-nowrap">Tamanho da página</span>
+            <select
+              aria-label="Tamanho da página"
+              value={pageSize}
+              onChange={(e) => setPageSize(e.target.value as '' | ExportPageSize)}
+              className="min-w-0 flex-1 bg-[#222] border border-[#333] rounded-md px-2 py-1 text-gray-200 focus:outline-none focus:border-blue-500"
+            >
+              {PAGE_SIZES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </label>
+          <p className="text-xs text-gray-500 mb-4">
+            {pageSize ? 'Vale para o PDF e para o Word.' : 'PDF em 14 × 21 cm; Word em A4.'}
+          </p>
           
           <div className="grid grid-cols-1 gap-2">
             {formats.map((format) => (
               <button
                 key={format.id}
-                onClick={() => { onExport(format.id); onClose(); }}
+                onClick={() => { onExport(format.id, pageSize ? { pageSize } : {}); onClose(); }}
                 className="flex items-center gap-4 p-3 border border-[#333] rounded-lg hover:bg-blue-600/10 hover:border-blue-500 transition-all text-left bg-[#222]"
               >
                 <div className="w-10 h-10 bg-[#1a1a1a] rounded flex items-center justify-center shadow-sm border border-[#333]">
