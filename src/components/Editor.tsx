@@ -294,8 +294,18 @@ export function Editor({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id, editor]);
 
-  const wordCount = editor?.storage.characterCount.words() || 0;
-  const charCount = editor?.storage.characterCount.characters() || 0;
+  // Assina as transações do editor: o setContent da troca de documento (sem
+  // emitUpdate) roda depois do render, e ler o storage direto no render deixava
+  // o rodapé com a contagem velha ("0 words") até a primeira tecla.
+  const counts = useEditorState({
+    editor,
+    selector: ({ editor: e }) => ({
+      words: e?.storage.characterCount.words() ?? 0,
+      chars: e?.storage.characterCount.characters() ?? 0,
+    }),
+  });
+  const wordCount = counts?.words ?? 0;
+  const charCount = counts?.chars ?? 0;
 
   const [focusedField, setFocusedField] = React.useState<'title' | 'subtitle' | null>(null);
   const [prefs, setPrefs] = React.useState<EditorDisplayPrefs>(readPrefs);

@@ -2,15 +2,15 @@ import React from 'react';
 import { Doc } from '../types';
 import { getDocIcon } from '../utils/getDocIcon';
 import { LABEL_COLORS } from '../constants';
+import { outlineWords } from '../lib/tree';
 
 interface OutlinerProps {
   docs: Doc[];
+  /** Todos os docs do projeto: pastas e Livros/Partes somam os descendentes. */
+  allDocs: Doc[];
   onSelectDoc: (id: string) => void;
   onUpdateMetadata: (id: string, metadata: Partial<Doc['metadata']>) => void;
 }
-
-const wordCount = (html: string) =>
-  (html || '').replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
 
 const TH = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
   <th
@@ -20,7 +20,7 @@ const TH = ({ children, className = '' }: { children: React.ReactNode; className
   </th>
 );
 
-export function Outliner({ docs, onSelectDoc, onUpdateMetadata }: OutlinerProps) {
+export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: OutlinerProps) {
   return (
     <div className="flex-1 bg-white overflow-x-auto scrivener-scrollbar">
       <table className="w-full border-collapse text-sm">
@@ -37,7 +37,7 @@ export function Outliner({ docs, onSelectDoc, onUpdateMetadata }: OutlinerProps)
         </thead>
         <tbody>
           {docs.map((doc) => {
-            const words = wordCount(doc.content);
+            const words = outlineWords(allDocs, doc);
             const target = doc.metadata?.target_word_count || 0;
             const pct = target > 0 ? Math.min(100, Math.round((words / target) * 100)) : 0;
             const labelDot = LABEL_COLORS[doc.metadata?.label || 'none']?.dot;

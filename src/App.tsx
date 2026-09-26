@@ -51,6 +51,8 @@ import { Inspector, InspectorTab } from './components/Inspector';
 import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
 import { Scrivenings } from './components/Scrivenings';
+import { flattenSubtree } from './lib/tree';
+import { readExpanded, readViewMode, readZoom, writeExpanded, writeViewMode, writeZoom } from './lib/uiState';
 import { CompositionMode } from './components/CompositionMode';
 import { QuickSearch } from './components/QuickSearch';
 import { TargetsModal } from './components/TargetsModal';
@@ -131,7 +133,7 @@ export default function App() {
   const project = useMemo(() => projects.find(p => p.id === activeProjectId) || projects[0] || null, [projects, activeProjectId]);
   const [docs, setDocs] = useState<Doc[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('editor');
+  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
   const [isInspectorOpen, setIsInspectorOpen] = useState(true);
   const [isQuickSearchOpen, setIsQuickSearchOpen] = useState(false);
   const [isTargetsOpen, setIsTargetsOpen] = useState(false);
@@ -151,6 +153,17 @@ export default function App() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showSaveIndicator, setShowSaveIndicator] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([]));
+  // Pastas abertas no Binder, por projeto. A gravação vem ANTES da leitura: na
+  // troca de projeto ela ainda grava o conjunto velho sob o id velho, e só
+  // depois a leitura passa a dona do conjunto para o projeto novo.
+  const expandedOwnerRef = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (expandedOwnerRef.current) writeExpanded(expandedOwnerRef.current, expandedFolders);
+  }, [expandedFolders]);
+  useEffect(() => {
+    expandedOwnerRef.current = activeProjectId;
+    setExpandedFolders(activeProjectId ? readExpanded(activeProjectId) : new Set());
+  }, [activeProjectId]);
   const isLocalOperationRef = React.useRef<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   /** Ultimo `docs` renderizado. A fila de salvamento le daqui o metadata na hora
@@ -232,7 +245,10 @@ export default function App() {
   // Panel Widths
   const [binderWidth, setBinderWidth] = useState(240);
   const [inspectorWidth, setInspectorWidth] = useState(280);
-  const [zoom, setZoom] = useState(100);
+  const [zoom, setZoom] = useState(readZoom);
+  // Vista e zoom sobrevivem à recarga (localStorage deste navegador).
+  useEffect(() => writeViewMode(viewMode), [viewMode]);
+  useEffect(() => writeZoom(zoom), [zoom]);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; id: string } | null>(null);
@@ -538,6 +554,14 @@ export default function App() {
 
   const sessionWords =
     sessionBaselineRef.current === null ? 0 : Math.max(0, projectWordCount - sessionBaselineRef.current);
+
+  // Scrivenings: a subárvore inteira na ordem do Binder (capítulos dentro do
+  // Livro, cenas dentro das pastas). A raiz só entra se for texto.
+  const scriveningsDocs = useMemo(() => {
+    if (!selectedDoc) return [];
+    const flat = flattenSubtree(docs, selectedDoc.id);
+    return selectedDoc.type === 'text' ? flat : flat.slice(1);
+  }, [docs, selectedDoc]);
 
   const currentFolderDocs = useMemo(() => {
     if (!selectedDoc) return [];
@@ -1508,7 +1532,7 @@ export default function App() {
                     )
                   )}
                   {viewMode === 'scrivenings' && (
-                    <Scrivenings docs={currentFolderDocs} />
+                    <Scrivenings docs={scriveningsDocs} />
                   )}
                   {viewMode === 'corkboard' && (
                     <Corkboard 
@@ -1520,6 +1544,7 @@ export default function App() {
                   {viewMode === 'outliner' && (
                     <Outliner 
                       docs={currentFolderDocs}
+                      allDocs={docs}
                       onSelectDoc={navigateTo}
                       onUpdateMetadata={handleUpdateMetadata}
                     />
