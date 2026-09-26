@@ -4,8 +4,6 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { jsPDF } from 'jspdf';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import { z } from 'zod';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -65,6 +63,7 @@ import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
+import { exportManuscript, ExportFormat, NothingToExportError } from './export';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
@@ -235,119 +234,16 @@ export default function App() {
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   const handleExport = async (format: string) => {
-    // 1. Filter documents marked for compile
-    const compileDocs = docs
-      .filter(d => d.type === 'text' && d.metadata.is_include_in_compile)
-      .sort((a, b) => a.order - b.order);
-    
-    if (compileDocs.length === 0) {
-      alert("No documents are marked for inclusion in compile. Please check 'Include in Compile' in the Inspector for the documents you want to export.");
-      return;
-    }
-
-    const safeTitle = project?.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'scribeflow';
-
-    const downloadBlob = (blob: Blob, filename: string) => {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    };
-
+    // A montagem (árvore do binder, lixeira, compilação) e os formatos ficam em src/export.
     try {
-      if (format === 'txt') {
-        const content = compileDocs.map(d => `${d.title.toUpperCase()}\n\n${d.content.replace(/<[^>]*>/g, '')}`).join('\n\n' + '='.repeat(40) + '\n\n');
-        const blob = new Blob([content], { type: 'text/plain' });
-        downloadBlob(blob, `${safeTitle}_export.txt`);
-      } 
-      else if (format === 'pdf') {
-        const doc = new jsPDF();
-        let yOffset = 20;
-        
-        doc.setFontSize(24);
-        doc.text(project?.name || 'Manuscript', 105, yOffset, { align: 'center' });
-        yOffset += 20;
-        
-        doc.setFontSize(12);
-        
-        compileDocs.forEach((d, index) => {
-          if (index > 0) {
-            doc.addPage();
-            yOffset = 20;
-          }
-          
-          doc.setFontSize(16);
-          doc.setFont("times", "bold");
-          doc.text(d.title, 20, yOffset);
-          yOffset += 15;
-          
-          doc.setFontSize(12);
-          doc.setFont("times", "normal");
-          
-          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-          const lines = doc.splitTextToSize(cleanText, 170);
-          
-          for (let i = 0; i < lines.length; i++) {
-            if (yOffset > 270) {
-              doc.addPage();
-              yOffset = 20;
-            }
-            doc.text(lines[i], 20, yOffset);
-            yOffset += 7;
-          }
-        });
-        
-        doc.save(`${safeTitle}_export.pdf`);
-      }
-      else if (format === 'docx') {
-        const children: Paragraph[] = [];
-        
-        // Title page
-        children.push(new Paragraph({ text: project?.name || 'Manuscript', heading: HeadingLevel.TITLE, spacing: { after: 400 } }));
-        
-        compileDocs.forEach(d => {
-          children.push(new Paragraph({ text: d.title, heading: HeadingLevel.HEADING_1, pageBreakBefore: true, spacing: { after: 200 } }));
-          
-          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-          const paragraphs = cleanText.split('\n').filter((p: string) => p.trim());
-          
-          paragraphs.forEach((p: string) => {
-            children.push(new Paragraph({
-              children: [new TextRun(p)],
-              spacing: { after: 120 }
-            }));
-          });
-        });
-
-        const docxDoc = new Document({ sections: [{ properties: {}, children }] });
-        const blob = await Packer.toBlob(docxDoc);
-        downloadBlob(blob, `${safeTitle}_export.docx`);
-      }
-      else if (format === 'rtf') {
-        let rtf = `{\\rtf1\\ansi\\ansicpg1252\\deff0\\nouicompat\\deflang1033{\\fonttbl{\\f0\\fnil\\fcharset0 Times New Roman;}}\n`;
-        rtf += `{\\*\n\\title ${project?.name || 'Manuscript'}}\n`;
-        rtf += `\\qc\\b\\fs48 ${project?.name || 'Manuscript'}\\par\\par\\b0\\fs24\\ql\n`;
-        
-        compileDocs.forEach(d => {
-          rtf += `\\page\\b\\fs32 ${d.title}\\par\\b0\\fs24\\par\n`;
-          const cleanText = d.content.replace(/<p[^>]*>/g, '').replace(/<\/p>/g, '\\par\n').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ');
-          rtf += cleanText + `\\par\n`;
-        });
-        
-        rtf += `}`;
-        const blob = new Blob([rtf], { type: 'application/rtf' });
-        downloadBlob(blob, `${safeTitle}_export.rtf`);
-      }
-      else if (format === 'epub') {
-        alert("EPUB exporter is currently in development. Please use DOCX or PDF for right now.");
-      }
+      await exportManuscript(format as ExportFormat, docs, project?.name);
     } catch (err) {
-      console.error("Export failed:", err);
-      alert("Failed to export document.");
+      if (err instanceof NothingToExportError) {
+        alert("Nenhum documento do Manuscript está marcado para compilar. Marque 'Include in Compile' no Inspector dos documentos que devem sair.");
+      } else {
+        console.error('Export failed:', err);
+        alert(err instanceof Error && format === 'epub' ? err.message : 'Não foi possível exportar o documento.');
+      }
     }
 
     setIsExportOpen(false);
