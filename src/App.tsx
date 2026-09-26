@@ -58,6 +58,7 @@ import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
+import { ContentBase, conflictSnapshot, needsConflictSnapshot } from './lib/conflict';
 import { SaveQueue, SaveStatus, DocFieldUpdates, mergeServerDocs, shouldRefetchOnRealtime } from './lib/persistence';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
@@ -157,9 +158,54 @@ export default function App() {
    *  de gravar, em vez de depender de um efeito colateral dentro do updater. */
   const docsRef = React.useRef<Doc[]>([]);
   docsRef.current = docs;
+  // Documento aberto e editor, lidos pelo fetch do realtime (fora do ciclo de render).
+  const selectedDocIdRef = React.useRef<string | null>(null);
+  selectedDocIdRef.current = selectedDocId;
+  const globalEditorRef = React.useRef<ReturnType<typeof useEditor>>(null);
+  /** Por doc: a versão do banco de onde o corpo local partiu (ver lib/conflict.ts). */
+  const contentBaseRef = React.useRef(new Map<string, ContentBase>());
   const [saveQueue] = useState(() => new SaveQueue({
     getDoc: (id) => docsRef.current.find(d => d.id === id),
     write: async (docId, projectId, payload) => {
+      const base = contentBaseRef.current.get(docId);
+      const ours = typeof payload.content === 'string' ? payload.content : null;
+      const remember = () => contentBaseRef.current.set(docId, {
+        updatedAt: typeof payload.updated_at === 'number' ? payload.updated_at : null,
+        content: ours ?? base?.content ?? '',
+      });
+
+      // Corpo: grava só se o banco ainda está na versão de onde partimos.
+      if (ours !== null && base && base.updatedAt !== null) {
+        const { data, error } = await supabase
+          .from('docs')
+          .update(payload)
+          .eq('id', docId)
+          .eq('project_id', projectId)
+          .eq('updated_at', base.updatedAt)
+          .select('id');
+        if (error) return { ok: false, retry: true, error: error.message };
+        if (data && data.length > 0) { remember(); return { ok: true }; }
+
+        // Outra aba gravou no meio: a versão dela vira snapshot e a nossa segue.
+        const { data: current, error: readError } = await supabase
+          .from('docs')
+          .select('title, content, metadata')
+          .eq('id', docId)
+          .eq('project_id', projectId)
+          .maybeSingle();
+        if (readError) return { ok: false, retry: true, error: readError.message };
+        if (!current) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+        if (needsConflictSnapshot(base.content, current.content, ours)) {
+          const snap = conflictSnapshot(current.title, current.content, crypto.randomUUID(), Date.now());
+          const meta = (payload.metadata ?? current.metadata ?? {}) as DocumentMetadata;
+          payload = { ...payload, metadata: { ...meta, snapshots: [snap, ...(meta.snapshots || [])] } };
+          setDocs(curr => curr.map(d => d.id === docId
+            ? { ...d, metadata: { ...d.metadata, snapshots: [snap, ...(d.metadata?.snapshots || [])] } }
+            : d));
+          console.warn(`[Save] conflito no doc ${docId}: a versão de outra aba foi guardada em Snapshots.`);
+        }
+      }
+
       // O supabase-js devolve { error } em vez de lancar, e um update barrado
       // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
       const { data, error } = await supabase
@@ -170,6 +216,7 @@ export default function App() {
         .select('id');
       if (error) return { ok: false, retry: true, error: error.message };
       if (!data || data.length === 0) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+      if (ours !== null || base) remember();
       return { ok: true };
     },
     onStatus: setSaveStatus,
@@ -486,7 +533,25 @@ export default function App() {
       }
 
       // Campo com edicao ainda nao confirmada pelo banco fica com o valor local.
-      setDocs(curr => mergeServerDocs(curr, (data || []) as Doc[], id => saveQueue.dirtyFields(id)));
+      const serverDocs = (data || []) as Doc[];
+      setDocs(curr => mergeServerDocs(curr, serverDocs, id => saveQueue.dirtyFields(id)));
+
+      // Corpo sem edicao local: o texto do banco passa a ser a base e, se for o
+      // documento aberto, entra no editor (senao a aba parada sobrescreveria o
+      // texto da outra ao voltar a digitar).
+      for (const d of serverDocs) {
+        if (saveQueue.dirtyFields(d.id).has('content')) continue;
+        // updated_at e coluna da tabela (o eco do realtime usa), fora do tipo Doc.
+        const serverAt = (d as Doc & { updated_at?: unknown }).updated_at;
+        contentBaseRef.current.set(d.id, { updatedAt: typeof serverAt === 'number' ? serverAt : null, content: d.content || '' });
+        const ed = globalEditorRef.current;
+        if (d.id === selectedDocIdRef.current && ed && !ed.isDestroyed && seq > 1 && d.content !== ed.getHTML()) {
+          const { from, to } = ed.state.selection;
+          ed.commands.setContent(d.content || '', { emitUpdate: false });
+          const max = ed.state.doc.content.size;
+          ed.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
+        }
+      }
     };
 
     fetchDocs();
@@ -975,6 +1040,8 @@ export default function App() {
       }
     },
   });
+
+  globalEditorRef.current = globalEditor;
 
   // Sync Global Editor with Selected Doc
   useEffect(() => {
