@@ -19,17 +19,36 @@ export interface PdfDefinition extends PdfNode {
 export const PDF_FONT = 'EBGaramond';
 
 const CM = 72 / 2.54;
-/** Formato 14 × 21 cm, o mais comum no livro brasileiro. */
-export const PAGE = { width: 14 * CM, height: 21 * CM };
-// Laterais iguais: é PDF de leitura (página simples), e o que é centralizado cai no meio da folha.
-const MARGINS = [1.9 * CM, 1.8 * CM, 1.9 * CM, 2.2 * CM]; // esq., topo, dir., base
+
+/**
+ * Tamanho da página. '14x21' (padrão do PDF): o formato mais comum no livro
+ * brasileiro. 'a4': a folha do DOCX, com as mesmas margens de lá (mancha de 13,4 cm).
+ * Laterais iguais: é PDF de leitura (página simples), e o que é centralizado cai no meio da folha.
+ */
+export type PageSizeId = '14x21' | 'a4';
+const PAGE_SIZES: Record<PageSizeId, { width: number; height: number; margins: number[] }> = {
+  '14x21': { width: 14 * CM, height: 21 * CM, margins: [1.9 * CM, 1.8 * CM, 1.9 * CM, 2.2 * CM] }, // esq., topo, dir., base
+  a4: { width: 21 * CM, height: 29.7 * CM, margins: [3.8 * CM, 3 * CM, 3.8 * CM, 3 * CM] },
+};
+
+interface Geometry {
+  width: number;
+  height: number;
+  margins: number[];
+  /** Título de capítulo afundado: o topo do título fica a ~1/3 da altura da página. */
+  chapterDrop: number;
+  /** Altura útil da página (entre as margens de cima e de baixo). */
+  contentHeight: number;
+}
+
+export const pageGeometry = (size: PageSizeId = '14x21'): Geometry => {
+  const { width, height, margins } = PAGE_SIZES[size] ?? PAGE_SIZES['14x21'];
+  return { width, height, margins, chapterDrop: height / 3 - margins[1], contentHeight: height - margins[1] - margins[3] };
+};
+
 const BODY_SIZE = 11;
 const INDENT = 1.25 * BODY_SIZE; // recuo de primeira linha de livro: 1,25em
 const LINE_HEIGHT = 1.32;
-/** Título de capítulo afundado: o topo do título fica a ~1/3 da altura da página. */
-const CHAPTER_DROP = PAGE.height / 3 - MARGINS[1];
-/** Altura útil da página (entre as margens de cima e de baixo). */
-const CONTENT_HEIGHT = PAGE.height - MARGINS[1] - MARGINS[3];
 
 /**
  * Estilo de parágrafo. 'book': recuo de primeira linha e nenhum espaço entre
@@ -41,6 +60,8 @@ export interface PdfOptions {
   paragraphStyle?: ParagraphStyle;
   /** Controle de viúvas, órfãs e título no pé (padrão: ligado). Desligar serve para comparação. */
   widowControl?: boolean;
+  /** Tamanho da página (padrão: 14 × 21 cm). */
+  pageSize?: PageSizeId;
 }
 const BLOCK_GAP = 0.6 * BODY_SIZE;
 
@@ -59,6 +80,7 @@ interface BlockOpts {
   bookIndent: boolean;
   defaultAlign: Align;
   style: ParagraphStyle;
+  geo: Geometry;
   /** Controle de viúvas, órfãs e título no pé (só no corpo corrido das seções). */
   pagination?: Pagination;
 }
@@ -78,9 +100,12 @@ const blocksToNodes = (blocks: Block[], opts: BlockOpts): PdfNode[] => {
         const indent = opts.bookIndent && book && !afterHeading && (align === 'justify' || align === 'left') && b.runs.length > 0;
         const gap = opts.bookIndent && !book ? { margin: [0, 0, 0, BLOCK_GAP] } : {};
         const node: PdfNode = { text: runsNode(b.runs), alignment: align, ...(indent ? { leadingIndent: INDENT } : {}), ...gap };
-        const track = opts.pagination && opts.bookIndent && b.runs.length > 0;
+        const pagination = opts.bookIndent ? opts.pagination : undefined;
         // A continuação (depois de uma viúva) segue sem recuo, com o mesmo alinhamento.
-        out.push(track ? opts.pagination!.trackParagraph(node, b.runs, (tail) => ({ text: runsNode(tail), alignment: align, ...gap })) : node);
+        if (pagination && b.runs.length > 0) out.push(pagination.trackParagraph(node, b.runs, (tail) => ({ text: runsNode(tail), alignment: align, ...gap })));
+        // Linha em branco no corpo: some se cair no topo da página.
+        else if (pagination) out.push(pagination.trackBlank(node));
+        else out.push(node);
         afterHeading = b.runs.length === 0;
         break;
       }
@@ -127,7 +152,7 @@ const blocksToNodes = (blocks: Block[], opts: BlockOpts): PdfNode[] => {
  * (justificar poucas palavras por linha abre buracos). A atribuição vem em
  * linha própria, à direita, com "— ", em redondo e versalete (smcp da EB Garamond).
  */
-export const epigraphNode = (e: Epigraph): PdfNode => ({
+export const epigraphNode = (e: Epigraph, geo: Geometry = pageGeometry()): PdfNode => ({
   stack: e.lines.map((line) => {
     if (line.kind === 'attribution') {
       return { text: line.display, italics: false, fontFeatures: ['smcp'], alignment: 'right', margin: [0, 5, 0, 0], fontSize: BODY_SIZE - 1.5 };
@@ -138,7 +163,7 @@ export const epigraphNode = (e: Epigraph): PdfNode => ({
   }),
   fontSize: BODY_SIZE - 1.5,
   lineHeight: 1.25,
-  margin: [PAGE.width * 0.25, 0, 0, 30],
+  margin: [geo.width * 0.25, 0, 0, 30],
   unbreakable: true,
 });
 
@@ -149,11 +174,11 @@ const NO_LINES = {
 };
 
 /** Conteúdo centralizado na vertical numa página própria. */
-const verticallyCentered = (stack: PdfNode[]): PdfNode => ({
+const verticallyCentered = (stack: PdfNode[], geo: Geometry): PdfNode => ({
   table: {
     widths: ['*'],
     // 1 pt de folga: a célula da altura exata empurraria para a página seguinte.
-    heights: [CONTENT_HEIGHT - 1],
+    heights: [geo.contentHeight - 1],
     body: [[{ stack, verticalAlignment: 'middle' }]],
   },
   layout: NO_LINES,
@@ -178,10 +203,10 @@ const partNodes = (item: CompileItem, opts: BlockOpts): PdfNode[] => {
   });
   const stack = [
     ...head,
-    ...(item.epigraph ? [epigraphNode(item.epigraph)] : []),
+    ...(item.epigraph ? [epigraphNode(item.epigraph, opts.geo)] : []),
     ...blocksToNodes(item.blocks, opts),
   ];
-  return [verticallyCentered(stack)];
+  return [verticallyCentered(stack, opts.geo)];
 };
 
 const chapterNodes = (item: CompileItem, partId: string | null, opts: BlockOpts): PdfNode[] => {
@@ -197,16 +222,14 @@ const chapterNodes = (item: CompileItem, partId: string | null, opts: BlockOpts)
       margin: [0, 0, 0, item.epigraph ? 30 : 40],
     });
   }
-  if (item.epigraph) head.push(epigraphNode(item.epigraph));
-  return [
-    { stack: head.length ? head : [{ text: '' }], margin: [0, CHAPTER_DROP, 0, 0], pageBreak: 'before' },
-    ...blocksToNodes(item.blocks, opts),
-  ];
+  if (item.epigraph) head.push(epigraphNode(item.epigraph, opts.geo));
+  const top: PdfNode = { stack: head.length ? head : [{ text: '' }], margin: [0, opts.geo.chapterDrop, 0, 0], pageBreak: 'before' };
+  return [opts.pagination ? opts.pagination.markHead(top) : top, ...blocksToNodes(item.blocks, opts)];
 };
 
 const sectionNodes = (item: CompileItem, opts: BlockOpts): PdfNode[] => {
   const out: PdfNode[] = [];
-  const top = item.startsPage ? CHAPTER_DROP : 18;
+  const top = item.startsPage ? opts.geo.chapterDrop : 18;
   if (item.title) {
     const title: PdfNode = {
       text: item.title,
@@ -216,11 +239,15 @@ const sectionNodes = (item: CompileItem, opts: BlockOpts): PdfNode[] => {
       margin: [0, top, 0, item.epigraph ? 12 : 10],
       ...(item.startsPage ? { pageBreak: 'before' } : {}),
     };
-    out.push(opts.pagination && !item.startsPage ? opts.pagination.trackHeading(title) : title);
+    if (!opts.pagination) out.push(title);
+    else out.push(item.startsPage ? opts.pagination.markHead(title) : opts.pagination.trackHeading(title));
   } else if (item.startsPage) {
     out.push({ text: '', pageBreak: 'before' });
   }
-  if (item.epigraph) out.push(epigraphNode(item.epigraph));
+  if (item.epigraph) {
+    const epigraph = epigraphNode(item.epigraph, opts.geo);
+    out.push(opts.pagination ? opts.pagination.markHead(epigraph) : epigraph);
+  }
   out.push(...blocksToNodes(item.blocks, opts));
   return out;
 };
@@ -247,10 +274,11 @@ const section = (nodes: PdfNode[], numbered: boolean, pagination?: Pagination): 
 };
 
 export const buildPdfDefinition = (ms: Manuscript, options: PdfOptions = {}): PdfDefinition => {
-  const pagination = new Pagination();
-  const opts: BlockOpts = { bookIndent: true, defaultAlign: 'justify', style: options.paragraphStyle ?? 'book', pagination };
+  const geo = pageGeometry(options.pageSize);
+  const pagination = new Pagination(geo.margins[1]);
+  const opts: BlockOpts = { bookIndent: true, defaultAlign: 'justify', style: options.paragraphStyle ?? 'book', geo, pagination };
   const content: PdfNode[] = [
-    section([verticallyCentered([{ text: ms.title, fontSize: 26, alignment: 'center', lineHeight: 1.1 }])], false),
+    section([verticallyCentered([{ text: ms.title, fontSize: 26, alignment: 'center', lineHeight: 1.1 }], geo)], false),
   ];
   let body: PdfNode[] = [];
   const flush = () => {
@@ -270,8 +298,8 @@ export const buildPdfDefinition = (ms: Manuscript, options: PdfOptions = {}): Pd
   flush();
 
   return {
-    pageSize: { width: PAGE.width, height: PAGE.height },
-    pageMargins: MARGINS,
+    pageSize: { width: geo.width, height: geo.height },
+    pageMargins: geo.margins,
     info: { title: ms.title, creator: 'ScribeFlow', producer: 'ScribeFlow' },
     defaultStyle: { font: PDF_FONT, fontSize: BODY_SIZE, lineHeight: LINE_HEIGHT },
     content,
