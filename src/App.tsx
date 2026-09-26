@@ -884,18 +884,23 @@ export default function App() {
           .update({ parent_id: u.parent_id, order: u.order })
           .eq('id', u.id)
           .eq('project_id', projectId)
+          .then(r => r, (error: unknown) => ({ error })) // rede caída conta como erro
       ));
       const failed = results.find(r => r.error);
       if (failed) {
         console.error('[Supabase] Erro ao gravar a ordem do binder:', failed.error);
         setSaveStatus('error');
         // Volta para o que o banco tem de fato (parte das linhas pode ter gravado).
-        const { data } = await supabase
-          .from('docs')
-          .select('id, parent_id, order')
-          .eq('project_id', projectId)
-          .in('id', updates.map(u => u.id));
-        if (data) setDocs(curr => applyOrderUpdates(curr, data as OrderUpdate[]));
+        try {
+          const { data } = await supabase
+            .from('docs')
+            .select('id, parent_id, order')
+            .eq('project_id', projectId)
+            .in('id', updates.map(u => u.id));
+          if (data) setDocs(curr => applyOrderUpdates(curr, data as OrderUpdate[]));
+        } catch (e) {
+          console.error('[Supabase] Erro ao reler a ordem do binder:', e);
+        }
       } else {
         setSaveStatus('saved');
       }
