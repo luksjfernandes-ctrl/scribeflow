@@ -14,7 +14,8 @@
 .composition-tiptap .ProseMirror > p {
     opacity: 0.25;
     transition: opacity 0.5s ease;
-    margin-bottom: 1.5em;
+    /* Sem margin-bottom aqui: o espaco entre paragrafos vem do estilo de
+       paragrafo (.book-text em index.css; Livro = recuo, Blocos = espaco). */
     color: var(--comp-text);
 }
 

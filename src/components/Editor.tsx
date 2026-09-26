@@ -17,7 +17,7 @@ import { cn } from '../lib/utils';
 
 import { Doc } from '../types';
 import { parseEpigraph } from '../lib/epigraph';
-import { parsePartTitle } from '../lib/part';
+import { parsePartTitle, suggestsPartTitle } from '../lib/part';
 import { isPart as isPartDoc } from '../lib/binderOrder';
 
 interface EditorProps {
@@ -35,6 +35,8 @@ interface EditorProps {
    *  o view.dom em um lugar, entao enquanto o overlay estiver montado — incluindo
    *  a animacao de saida — este EditorContent precisa ficar desmontado. */
   suspendEditorContent?: boolean;
+  /** Converte este documento em Livro/Parte (a mesma acao do Binder). */
+  onConvertToPart?: () => void;
 }
 
 const uid = () => {
@@ -242,6 +244,24 @@ const FormatBar = ({
   );
 };
 
+const HINTS_KEY = 'scribeflow-part-hint-dismissed';
+const readDismissedHints = (): string[] => {
+  try {
+    const raw = localStorage.getItem(HINTS_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+const writeDismissedHints = (ids: string[]) => {
+  try {
+    localStorage.setItem(HINTS_KEY, JSON.stringify(ids));
+  } catch {
+    /* sem storage: volta a aparecer ao recarregar */
+  }
+};
+
 /** Ajusta a altura do textarea ao conteudo (sem barra de rolagem interna). */
 const autosize = (el: HTMLTextAreaElement | null) => {
   if (!el) return;
@@ -260,7 +280,8 @@ export function Editor({
   externalEditor,
   onSubtitleChange,
   onAddComment,
-  suspendEditorContent = false
+  suspendEditorContent = false,
+  onConvertToPart,
 }: EditorProps) {
   const editor = externalEditor;
 
@@ -316,6 +337,16 @@ export function Editor({
     () => (isPart ? content.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length : 0),
     [isPart, content],
   );
+  // Faixa "Transformar em pagina de Livro?" para quem criou o Livro como
+  // documento comum. Dispensar vale por documento, so para quem esta vendo.
+  const [hintDismissed, setHintDismissed] = React.useState<string[]>(readDismissedHints);
+  const showPartHint =
+    !!onConvertToPart && !isPart && doc.type === 'text' && suggestsPartTitle(title) && !hintDismissed.includes(doc.id);
+  const dismissHint = () => {
+    const next = [...hintDismissed, doc.id].slice(-200);
+    setHintDismissed(next);
+    writeDismissedHints(next);
+  };
   const focusAtEnd = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.focus();
@@ -332,9 +363,20 @@ export function Editor({
         onPrefsChange={changePrefs}
       />
       
+      {showPartHint && (
+        <div className="part-hint" role="status">
+          <span>Parece o início de um Livro. Transformar em página de Livro?</span>
+          <button type="button" className="part-hint-convert" onClick={onConvertToPart}>
+            Transformar
+          </button>
+          <button type="button" className="part-hint-dismiss" aria-label="Dispensar sugestão" title="Dispensar" onClick={dismissHint}>
+            ×
+          </button>
+        </div>
+      )}
       <div className="editor-writing-area scrivener-scrollbar">
         <div 
-          className="editor-page"
+          className={cn('editor-page', isPart && 'part-host', isPart && !showBody && 'part-sheet')}
           style={{ 
             transform: `scale(${zoom / 100})`, 
             transformOrigin: 'top center',
@@ -420,7 +462,7 @@ export function Editor({
                       <p key={i} className="epigraph-blank" />
                     ) : (
                       <p key={i} className={line.kind === 'attribution' ? 'epigraph-attribution' : 'epigraph-quote'}>
-                        {line.text}
+                        {line.display}
                       </p>
                     ),
                   )
@@ -444,7 +486,7 @@ export function Editor({
           ) : (
             <EditorContent 
               editor={editor} 
-              className="prose prose-stone dark:prose-invert max-w-none focus:outline-none min-h-[500px]"
+              className="book-text prose prose-stone dark:prose-invert max-w-none focus:outline-none min-h-[500px]"
             />
           )}
         </div>

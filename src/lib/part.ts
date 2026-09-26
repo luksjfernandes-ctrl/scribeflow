@@ -26,3 +26,12 @@ export function parsePartTitle(title: string | null | undefined): PartTitle {
   if (!label || !name) return { label: '', name: t };
   return { label, name };
 }
+
+/**
+ * Titulo com cara de Livro/Parte ("Livro I – Infancia", "Parte 2", "Book One"),
+ * para oferecer a conversao em um documento comum. So a palavra inteira no
+ * inicio, seguida de algo: "Livros" ou "Particao" nao contam.
+ */
+export function suggestsPartTitle(title: string | null | undefined): boolean {
+  return /^\s*(livro|parte|book)\s+\S/i.test(title || '');
+}
