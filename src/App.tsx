@@ -40,13 +40,15 @@ import {
   Folder,
   File,
   Target,
-  BarChart3
+  BarChart3,
+  RotateCcw,
+  BookMarked
 } from 'lucide-react';
 import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot, Comment } from './types';
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
-import { DropPosition, OrderUpdate, applyOrderUpdates, nextOrder, planDrop } from './lib/binderOrder';
+import { DropPosition, OrderUpdate, applyOrderUpdates, isContainer, isPart, nextOrder, planDrop } from './lib/binderOrder';
 import { Inspector, InspectorTab } from './components/Inspector';
 import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
@@ -65,6 +67,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
 import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
+import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
 
 const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
@@ -350,11 +353,6 @@ export default function App() {
     setIsExportOpen(false);
   };
 
-  const handleShare = () => {
-    navigator.clipboard.writeText(window.location.href);
-    alert('URL do projeto copiada para a área de transferência!');
-  };
-
   const handleLogout = async () => {
     try {
       // Sem sessao, o RLS barraria o que ainda estiver na fila.
@@ -370,67 +368,17 @@ export default function App() {
     }
   };
 
-  const handleSave = () => {
-    setLastSaved(new Date());
+  const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string }>({ ok: true, text: 'Project Saved' });
+
+  // ⌘S grava de fato o que estiver na fila e só diz "salvo" se o banco confirmou.
+  const handleSave = async () => {
+    if (saveQueue.hasUnsaved()) await saveQueue.flush();
+    const ok = !saveQueue.hasUnsaved();
+    if (ok) setLastSaved(new Date());
+    setSaveMessage(ok ? { ok, text: 'Project Saved' } : { ok, text: 'Não foi possível salvar: veja a conexão' });
     setShowSaveIndicator(true);
     setTimeout(() => setShowSaveIndicator(false), 2000);
   };
-
-  const menus = [
-    {
-      label: 'File',
-      items: [
-        { label: 'New Text', shortcut: '⌘N', onClick: () => handleAddDoc(null, 'text') },
-        { label: 'New Folder', shortcut: '⇧⌘N', onClick: () => handleAddDoc(null, 'folder') },
-        { divider: true },
-        { label: 'Save', shortcut: '⌘S', onClick: handleSave },
-        { label: 'Export Draft...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
-        { divider: true },
-        { label: 'Print...', shortcut: '⌘P', onClick: () => window.print() },
-      ]
-    },
-    {
-      label: 'Edit',
-      items: [
-        { label: 'Undo', shortcut: '⌘Z', onClick: () => console.log('Undo (handled by TipTap)') },
-        { label: 'Redo', shortcut: '⇧⌘Z', onClick: () => console.log('Redo (handled by TipTap)') },
-      ]
-    },
-    {
-      label: 'View',
-      items: [
-        { label: 'Editor', shortcut: '⌘1', onClick: () => setViewMode('editor') },
-        { label: 'Corkboard', shortcut: '⌘2', onClick: () => setViewMode('corkboard') },
-        { label: 'Outliner', shortcut: '⌘3', onClick: () => setViewMode('outliner') },
-        { label: 'Scrivenings', shortcut: '⌘4', onClick: () => setViewMode('scrivenings') },
-        { divider: true },
-        { label: 'Toggle Binder', shortcut: '⌥⌘B', onClick: () => setIsBinderOpen(!isBinderOpen) },
-        { label: 'Toggle Inspector', shortcut: '⌥⌘I', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
-        { divider: true },
-        { label: 'Enter Composition Mode', shortcut: '⌥⌘F', onClick: () => setComposeState('open') },
-      ]
-    },
-    {
-      label: 'ScribeFlow',
-      items: [
-        { label: 'Sobre o ScribeFlow...', onClick: () => setIsAboutOpen(true) },
-        { divider: true },
-        { label: 'Sair do Sistema', onClick: handleLogout },
-      ]
-    },
-    {
-      label: 'Project',
-      items: [
-        { label: 'My Projects...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
-        { label: 'New Project...', shortcut: '⇧⌘P', onClick: () => handleCreateProject('New Project') },
-        { divider: true },
-        { label: 'Project Settings...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
-        { divider: true },
-        { label: 'New Character Sketch', onClick: () => handleAddDoc(null, 'characters') },
-        { label: 'New Setting Sketch', onClick: () => handleAddDoc(null, 'places') },
-      ]
-    }
-  ];
 
   const startResizingSplit = (e: React.MouseEvent) => {
     const startX = e.clientX;
@@ -652,7 +600,7 @@ export default function App() {
   // Total manuscript word count across all documents in the project.
   const projectWordCount = useMemo(
     () =>
-      docs.reduce(
+      withoutTrash(docs).reduce(
         (acc, doc) =>
           acc + (doc.content?.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length || 0),
         0
@@ -678,7 +626,7 @@ export default function App() {
   const currentFolderDocs = useMemo(() => {
     if (!selectedDoc) return [];
     const folderTypes: DocumentType[] = ['folder', 'research', 'characters', 'places', 'front-matter', 'trash'] as DocumentType[];
-    if (folderTypes.includes(selectedDoc.type)) {
+    if (folderTypes.includes(selectedDoc.type) || (isPart(selectedDoc) && docs.some(d => d.parent_id === selectedDoc.id))) {
       return docs.filter(d => d.parent_id === selectedDoc.id).sort((a, b) => a.order - b.order);
     }
     return [selectedDoc];
@@ -711,7 +659,18 @@ export default function App() {
   }).partial();
 
   // Handlers
-  const handleAddDoc = async (parent_id: string | null, type: DocumentType) => {
+  const handleAddDoc = async (
+    parent_id: string | null,
+    type: DocumentType,
+    opts: { asPart?: boolean; afterId?: string | null } = {},
+  ) => {
+    // Texto não tem filhos visíveis no fluxo normal: "New Text" sobre um texto
+    // cria o novo item logo DEPOIS dele, como irmão, e não escondido dentro.
+    // `afterId` pede isso explicitamente (Novo Livro/Parte: mesmo nível, logo depois).
+    const clickedDoc = parent_id ? docs.find(d => d.id === parent_id) : undefined;
+    const afterDoc = opts.afterId ? docs.find(d => d.id === opts.afterId && !d.metadata.folder_role) : undefined;
+    const siblingOf = afterDoc ?? (clickedDoc && !isContainer(clickedDoc) ? clickedDoc : undefined);
+    if (siblingOf) parent_id = siblingOf.parent_id;
     let final_parent_id = parent_id;
     if (!final_parent_id) {
       if (type === 'characters') final_parent_id = charactersFolder?.id || null;
@@ -723,7 +682,8 @@ export default function App() {
     const newId = crypto.randomUUID();
     const newDoc: Doc = {
       id: newId,
-      title: type === 'folder' ? 'New Folder' : 
+      title: opts.asPart ? 'Novo Livro' :
+             type === 'folder' ? 'New Folder' : 
              type === 'characters' ? 'New Character' : 
              type === 'places' ? 'New Setting' : 'New Document',
       content: '',
@@ -738,7 +698,7 @@ export default function App() {
         notes: '',
         target_word_count: 0,
         is_include_in_compile: true,
-        section_type: type === 'folder' ? 'Heading' : 'Scene',
+        section_type: opts.asPart ? 'Part' : type === 'folder' ? 'Heading' : 'Scene',
         created_at: Date.now(),
         updated_at: Date.now(),
         keywords: [],
@@ -766,8 +726,15 @@ export default function App() {
       isLocalOperationRef.current = true;
       try {
         const docWithProjectId = { ...newDoc, project_id: activeProjectId };
-        await supabase.from('docs').insert(docWithProjectId);
-        setDocs(curr => [...curr, docWithProjectId as Doc]);
+        const { error } = await supabase.from('docs').insert(docWithProjectId);
+        if (error) throw error;
+        const withNew = [...docs, docWithProjectId as Doc];
+        const reorder = siblingOf ? planDrop(withNew, newId, siblingOf.id, 'after') : null;
+        setDocs(curr => {
+          const next = [...curr, docWithProjectId as Doc];
+          return reorder ? applyOrderUpdates(next, reorder) : next;
+        });
+        if (reorder) persistOrderUpdates(reorder);
       } catch (e) {
         console.error('Error adding doc:', e);
       }
@@ -784,6 +751,24 @@ export default function App() {
     }
   };
 
+  /** Novo Livro/Parte: no mesmo nível do item escolhido, logo depois dele.
+   *  Sobre uma pasta estrutural (ou sem seleção), entra no fim dela / do Manuscript. */
+  const handleAddPart = (anchorId: string | null) => {
+    const anchor = anchorId ? docs.find(d => d.id === anchorId) : undefined;
+    if (anchor && !anchor.metadata.folder_role) {
+      void handleAddDoc(anchor.parent_id, 'text', { asPart: true, afterId: anchor.id });
+    } else {
+      void handleAddDoc(anchor?.id ?? null, 'text', { asPart: true });
+    }
+  };
+
+  /** Converte um documento de texto em Livro/Parte, ou de volta em cena. */
+  const handleTogglePart = (id: string) => {
+    const target = docs.find(d => d.id === id);
+    if (!target || target.type !== 'text') return;
+    handleUpdateMetadata(id, { section_type: isPart(target) ? 'Scene' : 'Part' });
+  };
+
   const getAllChildrenIds = (folderId: string, currentDocs: Doc[]): string[] => {
     const childrenIds = currentDocs.filter(d => d.parent_id === folderId).map(d => d.id);
     let allIds = [...childrenIds];
@@ -797,14 +782,7 @@ export default function App() {
     const targetDoc = docs.find(d => d.id === id);
     if (!targetDoc || targetDoc.metadata.folder_role) return; // Cannot delete structural folders
     
-    let isInTrash = targetDoc.parent_id === trashFolder?.id;
-    let parent = docs.find(d => d.id === targetDoc.parent_id);
-    while (!isInTrash && parent) {
-      if (parent.id === trashFolder?.id) isInTrash = true;
-      parent = docs.find(d => d.id === parent?.parent_id);
-    }
-
-    if (isInTrash) {
+    if (isInTrash(docs, id)) {
       if (window.confirm('Tem certeza de que deseja excluir permanentemente este item? Esta ação não pode ser desfeita.')) {
         const idsToDelete = [id, ...getAllChildrenIds(id, docs)];
         if (user && activeProjectId) {
@@ -818,27 +796,40 @@ export default function App() {
         if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
       }
     } else if (trashFolder) {
-      const updatedMetadata = targetDoc.metadata.is_include_in_compile
-        ? { ...targetDoc.metadata, is_include_in_compile: false }
-        : targetDoc.metadata;
-      if (user && activeProjectId) {
-        isLocalOperationRef.current = true;
-        await supabase.from('docs').update({ parent_id: trashFolder.id, metadata: updatedMetadata }).eq('id', id);
-        if (targetDoc.type === 'folder') {
-          const childIds = getAllChildrenIds(id, docs);
-          if (childIds.length > 0) {
-            await supabase.from('docs').update({ parent_id: trashFolder.id }).in('id', childIds);
-          }
-        }
-      }
-      setDocs(curr => curr.map(d => {
-        if (d.id === id) return { ...d, parent_id: trashFolder.id, metadata: updatedMetadata };
-        if (targetDoc.type === 'folder' && getAllChildrenIds(id, docs).includes(d.id)) return { ...d, parent_id: trashFolder.id };
-        return d;
-      }));
-      setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
-      if (selectedDocId === id) setSelectedDocId(null);
+      // Move só o item: os filhos de uma pasta vão junto porque continuam
+      // apontando para ela. Antes cada filho ia solto para a raiz da lixeira
+      // (a estrutura se perdia) e seguia marcado para compilar.
+      const trash_origin: TrashOrigin = {
+        parent_id: targetDoc.parent_id,
+        order: targetDoc.order,
+        is_include_in_compile: targetDoc.metadata.is_include_in_compile,
+      };
+      const fields = { parent_id: trashFolder.id, order: nextOrder(docs, trashFolder.id) };
+      const metadataPatch = { is_include_in_compile: false, trash_origin, updated_at: Date.now() };
+      setDocs(curr => curr.map(d => d.id === id ? { ...d, ...fields, metadata: { ...d.metadata, ...metadataPatch } } : d));
+      if (user && activeProjectId) saveQueue.enqueue(id, activeProjectId, { fields, metadataPatch });
+      if (selectedDocId === id || getAllChildrenIds(id, docs).includes(selectedDocId || '')) setSelectedDocId(null);
     }
+  };
+
+  /** Devolve um item da lixeira (com tudo que estiver dentro dele) para onde estava. */
+  const handleRestoreDoc = (id: string) => {
+    const targetDoc = docs.find(d => d.id === id);
+    if (!targetDoc || !trashFolder || targetDoc.parent_id !== trashFolder.id) return;
+    const origin = targetDoc.metadata.trash_origin;
+    const parent_id = restoreParentId(docs, origin);
+    const fields = { parent_id, order: nextOrder(docs, parent_id) };
+    const metadataPatch = {
+      // Item apagado antes desta versão não tem origem: volta marcado para compilar
+      // só se for texto, que é o padrão de um documento novo.
+      is_include_in_compile: origin ? origin.is_include_in_compile : targetDoc.type === 'text',
+      trash_origin: undefined,
+      updated_at: Date.now(),
+    };
+    setDocs(curr => curr.map(d => d.id === id ? { ...d, ...fields, metadata: { ...d.metadata, ...metadataPatch } } : d));
+    if (user && activeProjectId) saveQueue.enqueue(id, activeProjectId, { fields, metadataPatch });
+    if (parent_id) setExpandedFolders(prev => new Set(prev).add(parent_id));
+    setSelectedDocId(id);
   };
 
   const handleEmptyTrash = async () => {
@@ -1081,25 +1072,125 @@ export default function App() {
     }
   }, [selectedDoc?.id, globalEditor]);
 
-  // Global Shortcuts (Composition Mode, etc.)
+  const canCompose = selectedDoc?.type === 'text';
+  const openCompose = () => { if (canCompose) setComposeState('open'); };
+
+  const handleNewProject = () => {
+    const name = window.prompt('Nome do novo projeto:', '');
+    if (name && name.trim()) handleCreateProject(name.trim());
+  };
+
+  // Desfazer/Refazer do menu agem no editor de texto; os atalhos ⌘Z/⇧⌘Z já
+  // funcionam dentro dele pelo próprio TipTap.
+  const canUndo = viewMode === 'editor' && canCompose && !!globalEditor?.can().undo();
+  const canRedo = viewMode === 'editor' && canCompose && !!globalEditor?.can().redo();
+
+  // Atalho anunciado aqui tem que existir no listener global (ou no TipTap).
+  // Atalhos que o navegador reserva (⌘N, ⌘1-4, ⌥⌘I...) ficam sem rótulo.
+  const menus = [
+    {
+      label: 'File',
+      items: [
+        { label: 'New Text', onClick: () => handleAddDoc(null, 'text') },
+        { label: 'New Folder', onClick: () => handleAddDoc(null, 'folder') },
+        { label: 'Novo Livro / Parte', onClick: () => handleAddPart(selectedDocId) },
+        { divider: true },
+        { label: 'Save', shortcut: '⌘S', onClick: handleSave },
+        { label: 'Export Draft...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
+      ]
+    },
+    {
+      label: 'Edit',
+      items: [
+        { label: 'Undo', shortcut: '⌘Z', disabled: !canUndo, onClick: () => globalEditor?.chain().focus().undo().run() },
+        { label: 'Redo', shortcut: '⇧⌘Z', disabled: !canRedo, onClick: () => globalEditor?.chain().focus().redo().run() },
+        { divider: true },
+        { label: 'Go to Document...', shortcut: '⌘O', onClick: () => setIsQuickSearchOpen(true) },
+      ]
+    },
+    {
+      label: 'View',
+      items: [
+        { label: 'Editor', onClick: () => setViewMode('editor') },
+        { label: 'Corkboard', onClick: () => setViewMode('corkboard') },
+        { label: 'Outliner', onClick: () => setViewMode('outliner') },
+        { label: 'Scrivenings', onClick: () => setViewMode('scrivenings') },
+        { divider: true },
+        { label: 'Toggle Binder', onClick: () => setIsBinderOpen(!isBinderOpen) },
+        { label: 'Toggle Inspector', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
+        { divider: true },
+        { label: 'Enter Composition Mode', shortcut: '⇧⌘F', disabled: !canCompose, onClick: openCompose },
+      ]
+    },
+    {
+      label: 'ScribeFlow',
+      items: [
+        { label: 'Sobre o ScribeFlow...', onClick: () => setIsAboutOpen(true) },
+        { divider: true },
+        { label: 'Sair do Sistema', onClick: handleLogout },
+      ]
+    },
+    {
+      label: 'Project',
+      items: [
+        { label: 'My Projects...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
+        { label: 'New Project...', onClick: handleNewProject },
+        { divider: true },
+        { label: 'Project Settings...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
+        { divider: true },
+        { label: 'New Character Sketch', onClick: () => handleAddDoc(null, 'characters') },
+        { label: 'New Setting Sketch', onClick: () => handleAddDoc(null, 'places') },
+      ]
+    }
+  ];
+
+  // Atalhos globais: cada um corresponde a um rótulo do menu.
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
-      // F11 or Cmd+Shift+F
-      if (e.key === 'F11' || (e.key === 'f' && e.shiftKey && (e.metaKey || e.ctrlKey))) {
-        if (selectedDoc && selectedDoc.type === 'text') {
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      // ⌘S vale em qualquer lugar, inclusive no Compose: nunca abre o "salvar página" do navegador.
+      if (mod && !e.shiftKey && !e.altKey && key === 's') {
+        e.preventDefault();
+        void handleSave();
+        return;
+      }
+      if (composeState !== 'closed') return;
+      // F11 ou ⇧⌘F — Compose
+      if (e.key === 'F11' || (mod && e.shiftKey && !e.altKey && key === 'f')) {
+        if (canCompose) {
           e.preventDefault();
           setComposeState('open');
         }
+        return;
       }
-      // Cmd/Ctrl+O — Quick Search / Go to document
-      if (e.key === 'o' && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      // ⌘O — Quick Search
+      if (mod && !e.shiftKey && !e.altKey && key === 'o') {
         e.preventDefault();
         setIsQuickSearchOpen((prev) => !prev);
+        return;
+      }
+      // ⇧⌘E — Exportar
+      if (mod && e.shiftKey && !e.altKey && key === 'e') {
+        e.preventDefault();
+        setIsExportOpen(true);
+        return;
+      }
+      // ⌘P — Meus projetos (no lugar do "imprimir" do navegador)
+      if (mod && !e.shiftKey && !e.altKey && key === 'p') {
+        e.preventDefault();
+        setIsProjectsModalOpen(true);
+        return;
+      }
+      // ⌥⌘, — Ajustes do projeto (e.code: no Mac o ⌥ troca o caractere da tecla)
+      if (mod && e.altKey && e.code === 'Comma') {
+        e.preventDefault();
+        setIsSettingsOpen(true);
       }
     };
     window.addEventListener('keydown', handleGlobalShortcuts);
     return () => window.removeEventListener('keydown', handleGlobalShortcuts);
-  }, [selectedDoc]);
+  });
 
   const handleUpdateMetadata = async (id: string, metadata_updates: Partial<DocumentMetadata>) => {
     const updated_at = Date.now();
@@ -1205,8 +1296,13 @@ export default function App() {
   const closeContextMenu = () => setContextMenu(null);
 
   useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeContextMenu(); };
     window.addEventListener('click', closeContextMenu);
-    return () => window.removeEventListener('click', closeContextMenu);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('click', closeContextMenu);
+      window.removeEventListener('keydown', onKey);
+    };
   }, []);
 
   // 1. Initial Auth Loading
@@ -1259,10 +1355,10 @@ export default function App() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="fixed top-8 right-8 bg-[#5B7A3D] text-white px-4 py-2 rounded-lg shadow-lg z-[10000] text-xs font-bold flex items-center gap-2"
+            className={cn("fixed top-8 right-8 text-white px-4 py-2 rounded-lg shadow-lg z-[10000] text-xs font-bold flex items-center gap-2", saveMessage.ok ? "bg-[#5B7A3D]" : "bg-red-600")}
           >
             <Save size={14} />
-            Project Saved
+            {saveMessage.text}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1362,8 +1458,10 @@ export default function App() {
         {/* Action Buttons */}
         <div className="flex items-center gap-1">
           <button 
-            onClick={() => setComposeState('open')}
-            className="composition-btn mr-2 flex items-center gap-1.5"
+            onClick={openCompose}
+            disabled={!canCompose}
+            title={canCompose ? 'Compose (F11 / ⇧⌘F)' : 'Selecione um documento de texto'}
+            className="composition-btn mr-2 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <PenTool size={14} />
             Compose
@@ -1396,7 +1494,11 @@ export default function App() {
           </button>
 
           {user && (
-            <button onClick={handleLogout} className="macos-btn" title={`Signed in as ${user.user_metadata?.full_name || user.email}`}>
+            <button
+              onClick={() => { if (window.confirm(`Sair da conta ${user.email}?`)) void handleLogout(); }}
+              className="macos-btn"
+              title={`Signed in as ${user.user_metadata?.full_name || user.email} — clique para sair`}
+            >
               {user.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
               ) : (
@@ -1420,6 +1522,7 @@ export default function App() {
               selectedDocId={selectedDocId}
               onSelectDoc={navigateTo}
               onAddDoc={handleAddDoc}
+              onAddPart={() => handleAddPart(selectedDocId)}
               onUpdateDoc={handleUpdateDoc}
               onDeleteDoc={handleDeleteDoc}
               onRenameDoc={handleRenameDoc}
@@ -1537,6 +1640,7 @@ export default function App() {
               onUpdateComment={handleUpdateComment}
               onDeleteComment={handleDeleteComment}
               onSelectComment={handleSelectComment}
+              onTogglePart={handleTogglePart}
             />
           </div>
         )}
@@ -1613,39 +1717,52 @@ export default function App() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="context-menu-item" onClick={() => handleAddDoc(contextMenu.id, 'text')}>
+          <div className="context-menu-item" onClick={() => { handleAddDoc(contextMenu.id, 'text'); setContextMenu(null); }}>
             <div className="context-menu-icon"><File size={14} /></div>
             New Text
-            <span className="context-menu-shortcut">⌘N</span>
           </div>
-          <div className="context-menu-item" onClick={() => handleAddDoc(contextMenu.id, 'folder')}>
+          <div className="context-menu-item" onClick={() => { handleAddDoc(contextMenu.id, 'folder'); setContextMenu(null); }}>
             <div className="context-menu-icon"><Folder size={14} /></div>
             New Folder
-            <span className="context-menu-shortcut">⇧⌘N</span>
           </div>
+          <div className="context-menu-item" onClick={() => { handleAddPart(contextMenu.id); setContextMenu(null); }}>
+            <div className="context-menu-icon"><BookMarked size={14} /></div>
+            Novo Livro / Parte
+          </div>
+          {docs.find(d => d.id === contextMenu.id)?.type === 'text' && (
+            <div className="context-menu-item" onClick={() => { handleTogglePart(contextMenu.id); setContextMenu(null); }}>
+              <div className="context-menu-icon"><BookMarked size={14} /></div>
+              {isPart(docs.find(d => d.id === contextMenu.id)!) ? 'Converter em documento' : 'Converter em Livro / Parte'}
+            </div>
+          )}
           <div className="context-menu-separator" />
           <div className="context-menu-item" onClick={() => { setRenamingId(contextMenu.id); setContextMenu(null); }}>
             <div className="context-menu-icon"><Edit3 size={14} /></div>
             Rename
-            <span className="context-menu-shortcut">↩</span>
           </div>
           {contextMenu && contextMenu.id === trashFolder?.id ? (
             <div className="context-menu-item" onClick={() => { handleEmptyTrash(); setContextMenu(null); }} style={{ color: '#E74C3C' }}>
               <div className="context-menu-icon"><Trash2 size={14} /></div>
               Esvaziar Lixeira
             </div>
-          ) : contextMenu.id !== trashFolder?.id && (
-            <div className="context-menu-item" onClick={() => { handleDeleteDoc(contextMenu.id); setContextMenu(null); }}>
-              <div className="context-menu-icon"><Trash2 size={14} /></div>
-              {docs.find(d => d.id === contextMenu.id)?.parent_id === trashFolder?.id ? 'Deletar Permanentemente' : 'Move to Trash'}
-              <span className="context-menu-shortcut">⌘⌫</span>
-            </div>
+          ) : (
+            <>
+              {docs.find(d => d.id === contextMenu.id)?.parent_id === trashFolder?.id && (
+                <div className="context-menu-item" onClick={() => { handleRestoreDoc(contextMenu.id); setContextMenu(null); }}>
+                  <div className="context-menu-icon"><RotateCcw size={14} /></div>
+                  Restaurar
+                </div>
+              )}
+              {/* Pastas estruturais (Manuscript, Characters...) não vão para a lixeira. */}
+              {!docs.find(d => d.id === contextMenu.id)?.metadata.folder_role && (
+                <div className="context-menu-item" onClick={() => { handleDeleteDoc(contextMenu.id); setContextMenu(null); }}>
+                  <div className="context-menu-icon"><Trash2 size={14} /></div>
+                  {isInTrash(docs, contextMenu.id) ? 'Deletar Permanentemente' : 'Move to Trash'}
+                </div>
+              )}
+            </>
           )}
-          <div className="context-menu-separator" />
-          <div className="context-menu-item" onClick={() => { handleShare(); setContextMenu(null); }}>
-            <div className="context-menu-icon"><Share size={14} /></div>
-            Compartilhar Link
-          </div>
+          {/* "Compartilhar Link" escondido: copiava só a URL raiz, sem projeto nem documento. */}
           {contextMenu && docs.find(d => d.id === contextMenu.id)?.type === 'folder' && (
             <>
               <div className="context-menu-separator" />

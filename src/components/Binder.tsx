@@ -19,10 +19,11 @@ import {
   Layout,
   MoreVertical,
   Settings,
-  Pencil
+  Pencil,
+  BookMarked
 } from 'lucide-react';
 import { Doc, DocumentType } from '../types';
-import { ICONS, FOLDER_COLORS } from '../constants';
+import { ICONS, FOLDER_COLORS, labelColorOf } from '../constants';
 import { getDocIcon } from '../utils/getDocIcon';
 import { cn } from '../lib/utils';
 import {
@@ -51,6 +52,7 @@ import {
   planDrop,
 } from '../lib/binderOrder';
 import { InlineNameInput } from './InlineNameInput';
+import { isInTrash } from '../lib/trash';
 
 // Com o ponteiro em cima de uma linha, ela é o alvo; nos vãos, a mais próxima.
 const binderCollision: CollisionDetection = (args) => {
@@ -173,6 +175,8 @@ function SortableBinderItem({
     }
   };
 
+  const hasDisclosure = isContainer(doc) || childrenDocs.length > 0;
+
   const wordCount = (doc.content || '').replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length;
 
   return (
@@ -216,16 +220,18 @@ function SortableBinderItem({
           </svg>
         </div>
 
+        {/* Seta em pasta e em QUALQUER item com filhos: um texto com filhos
+            (dado legado ou vindo de outra versão) não pode esconder documentos. */}
         <div
           className="w-4 h-4 mr-0.5 flex items-center justify-center cursor-default"
           onClick={(e) => {
-            if (doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter' || doc.type === 'trash') {
+            if (hasDisclosure) {
               e.stopPropagation();
               onToggle(doc.id);
             }
           }}
         >
-          {(doc.type === 'folder' || doc.type === 'research' || doc.type === 'characters' || doc.type === 'places' || doc.type === 'front-matter' || doc.type === 'trash') && (
+          {hasDisclosure && (
             <div
               className={cn("disclosure-triangle", is_expanded && "expanded")}
               dangerouslySetInnerHTML={{ __html: is_expanded ? ICONS.disclosureExpanded : ICONS.disclosure }}
@@ -237,10 +243,11 @@ function SortableBinderItem({
           {getDocIcon(doc)}
         </div>
 
-        {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
+        {labelColorOf(doc.metadata) && (
           <div
-            className="w-2 h-2 rounded-full mr-2 shadow-sm"
-            style={{ backgroundColor: doc.metadata.label_color }}
+            data-label-dot
+            className="w-2 h-2 rounded-full mr-2 shadow-sm shrink-0"
+            style={{ backgroundColor: labelColorOf(doc.metadata)! }}
           />
         )}
 
@@ -294,6 +301,8 @@ interface BinderProps {
   selectedDocId: string | null;
   onSelectDoc: (id: string) => void;
   onAddDoc: (parent_id: string | null, type: DocumentType) => void;
+  /** Novo Livro/Parte depois do item selecionado. */
+  onAddPart: () => void;
   onDeleteDoc: (id: string) => void;
   onRenameDoc: (id: string, newTitle: string) => void;
   onDropDoc: (activeId: string, targetId: string, position: DropPosition) => void;
@@ -314,6 +323,7 @@ export const Binder: React.FC<BinderProps> = ({
   selectedDocId,
   onSelectDoc,
   onAddDoc,
+  onAddPart,
   onDeleteDoc,
   onRenameDoc,
   onDropDoc,
@@ -443,7 +453,7 @@ export const Binder: React.FC<BinderProps> = ({
   // collapsed folders surface too (the tree only renders expanded branches).
   const renderSearchResults = () => {
     const results = docs
-      .filter((d) => d.metadata?.folder_role !== 'trash' && matchesSearch(d, searchQuery))
+      .filter((d) => !isInTrash(docs, d.id) && matchesSearch(d, searchQuery))
       .sort((a, b) => a.title.localeCompare(b.title));
 
     if (results.length === 0) {
@@ -462,10 +472,10 @@ export const Binder: React.FC<BinderProps> = ({
         onClick={() => onSelectDoc(doc.id)}
       >
         <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">{getDocIcon(doc)}</div>
-        {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
+        {labelColorOf(doc.metadata) && (
           <div
             className="w-2 h-2 rounded-full mr-2 shadow-sm shrink-0"
-            style={{ backgroundColor: doc.metadata.label_color }}
+            style={{ backgroundColor: labelColorOf(doc.metadata)! }}
           />
         )}
         <span className="flex-1 truncate text-[13px] tracking-tight">{doc.title}</span>
@@ -582,6 +592,13 @@ export const Binder: React.FC<BinderProps> = ({
               title="Novo Texto"
             >
               <Plus size={14} />
+            </button>
+            <button
+              onClick={onAddPart}
+              className="macos-btn w-6 h-6"
+              title="Novo Livro / Parte (depois do item selecionado)"
+            >
+              <BookMarked size={14} />
             </button>
           </div>
         </div>

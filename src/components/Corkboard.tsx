@@ -2,7 +2,7 @@ import React from 'react';
 import { Doc } from '../types';
 import { cn } from '../lib/utils';
 import { getDocIcon } from '../utils/getDocIcon';
-import { ICONS, FOLDER_COLORS } from '../constants';
+import { ICONS, FOLDER_COLORS, labelColorOf } from '../constants';
 
 
 
@@ -25,6 +25,10 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
             className="bg-[#FFFDE8] ambient-shadow rounded-sm flex flex-col h-72 group cursor-pointer hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
             onClick={() => onSelectDoc(doc.id)}
           >
+            {/* Faixa do rótulo no topo do cartão, como no Scrivener */}
+            {labelColorOf(doc.metadata) && (
+              <div data-label-bar className="h-1.5 w-full rounded-t-sm" style={{ backgroundColor: labelColorOf(doc.metadata)! }} />
+            )}
             {/* Index Card Header */}
             <div className="p-4 flex items-center justify-between border-b border-[#B5B2AA]/20">
               <div className="flex items-center gap-2">
@@ -33,12 +37,6 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
                   {doc.title}
                 </span>
               </div>
-              {doc.metadata.label_color && doc.metadata.label_color !== 'transparent' && (
-                <div 
-                  className="w-full h-1" 
-                  style={{ backgroundColor: doc.metadata.label_color }}
-                />
-              )}
             </div>
             
             {/* Index Card Body (Synopsis) */}

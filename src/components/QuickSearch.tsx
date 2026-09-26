@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, CornerDownLeft } from 'lucide-react';
 import { Doc } from '../types';
 import { getDocIcon } from '../utils/getDocIcon';
+import { withoutTrash } from '../lib/trash';
 
 interface QuickSearchProps {
   docs: Doc[];
@@ -38,8 +39,8 @@ export function QuickSearch({ docs, onSelect, onClose }: QuickSearchProps) {
 
   const results = useMemo(() => {
     const query = q.trim().toLowerCase();
-    // Never surface the Trash folder itself; documents inside still match.
-    const pool = docs.filter((d) => d.metadata?.folder_role !== 'trash');
+    // Nada da lixeira: nem a pasta, nem o que está dentro dela.
+    const pool = withoutTrash(docs);
     if (!query) {
       return pool
         .filter((d) => d.type === 'text')

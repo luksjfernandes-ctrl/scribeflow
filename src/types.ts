@@ -50,6 +50,8 @@ export interface DocumentMetadata {
   snapshots: Snapshot[];
   comments: Comment[];
   bookmarks: Bookmark[];
+  /** Onde o item estava antes de ir para a lixeira (usado pelo Restaurar). */
+  trash_origin?: { parent_id: string | null; order: number; is_include_in_compile: boolean };
 }
 
 export interface Doc {

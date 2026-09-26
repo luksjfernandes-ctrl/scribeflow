@@ -57,6 +57,14 @@ export const ICONS = {
       <rect x="5" y="1" width="4" height="2" rx="0.5" stroke="currentColor" stroke-width="1"/>
     </svg>
   `,
+  part: `
+    <svg width="14" height="16" viewBox="0 0 14 16" xmlns="http://www.w3.org/2000/svg">
+      <path d="M2 1.5C2 0.95 2.45 0.5 3 0.5H12.5V13.5H3C2.45 13.5 2 13.95 2 14.5V1.5Z" fill="#8B2E2E" stroke="rgba(0,0,0,0.3)" stroke-width="0.6"/>
+      <path d="M2 14.5C2 15.05 2.45 15.5 3 15.5H12.5V13.5" fill="#F4EFE4" stroke="rgba(0,0,0,0.3)" stroke-width="0.6"/>
+      <line x1="5" y1="4.5" x2="10" y2="4.5" stroke="#E8C94A" stroke-width="0.9"/>
+      <line x1="5" y1="6.5" x2="10" y2="6.5" stroke="#E8C94A" stroke-width="0.5"/>
+    </svg>
+  `,
   disclosure: `
     <svg width="8" height="8" viewBox="0 0 8 8" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M2 1.5L5.5 4L2 6.5V1.5Z" fill="#7A7770"/>
@@ -98,3 +106,14 @@ const createMetadata = (overrides: Partial<DocumentMetadata> = {}): DocumentMeta
   ...overrides,
 });
 
+
+/**
+ * Cor do rótulo de um documento. O Inspector e o Outliner gravam só `label`
+ * ('red', 'green'...); `label_color` é legado e só vale se não houver rótulo.
+ */
+export const labelColorOf = (metadata: Pick<DocumentMetadata, 'label' | 'label_color'> | undefined): string | null => {
+  const label = metadata?.label;
+  if (label && label !== 'none' && LABEL_COLORS[label]) return LABEL_COLORS[label].dot;
+  const legacy = metadata?.label_color;
+  return legacy && legacy !== 'transparent' ? legacy : null;
+};
