@@ -137,10 +137,18 @@ function SortableBinderItem({
   const [editTitle, setEditTitle] = useState(doc.title);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // O campo parte do titulo ATUAL: o editTitle inicial fica velho quando o
+  // titulo muda pelo editor, e sair do campo desfazia o titulo novo.
+  const startEditing = () => {
+    setEditTitle(doc.title);
+    setIsEditing(true);
+  };
+
   useEffect(() => {
     if (isRenaming) {
-      setIsEditing(true);
+      startEditing();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRenaming]);
 
   useEffect(() => {
@@ -191,7 +199,7 @@ function SortableBinderItem({
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={() => onSelect(doc.id)}
-        onDoubleClick={() => setIsEditing(true)}
+        onDoubleClick={startEditing}
         onContextMenu={(e) => onContextMenu(e, doc.id)}
       >
         {(dropPosition === 'before' || dropPosition === 'after') && (

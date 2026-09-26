@@ -36,6 +36,19 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
             </select>
           </div>
 
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-medium text-gray-300">Estilo de parágrafo</span>
+            <select
+              className="bg-[#222] border border-[#333] rounded-md px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-[#5B7A3D]"
+              aria-label="Estilo de parágrafo"
+              value={settings.paragraph_style === 'blocks' ? 'blocks' : 'book'}
+              onChange={(e) => onUpdateSettings({ paragraph_style: e.target.value as 'book' | 'blocks' })}
+            >
+              <option value="book">Livro (recuo)</option>
+              <option value="blocks">Blocos (espaço entre parágrafos)</option>
+            </select>
+          </div>
+
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-gray-300">Target Word Count</span>
             <input 

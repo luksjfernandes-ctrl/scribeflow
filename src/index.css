@@ -551,17 +551,30 @@
 }
 
 .editor-page p {
-  text-indent: 2em;
   margin: 0;
   padding: 0;
 }
 
-.editor-page h1 + p,
-.editor-page h2 + p,
-.editor-page h3 + p,
-.editor-page hr + p {
+/* Paragrafo do texto do livro (editor, Scrivenings e Compose usam .book-text).
+   Livro (padrao): recuo de primeira linha de 1,5em, sem espaco entre
+   paragrafos, e sem recuo no primeiro paragrafo e no que vem depois de titulo,
+   separador, citacao ou lista. Blocos: sem recuo, com espaco entre paragrafos.
+   Escolha em Ajustes > Estilo de paragrafo (settings.paragraph_style). */
+.book-text p {
+  margin: 0;
+  text-indent: 1.5em;
+}
+.book-text p:first-child,
+.book-text :is(h1, h2, h3, h4, h5, h6, hr, blockquote, ul, ol, pre) + p,
+.book-text li p,
+.book-text blockquote p {
   text-indent: 0;
 }
+:root[data-paragraph-style="blocks"] .book-text p {
+  text-indent: 0;
+  margin: 0 0 0.9em;
+}
+:root[data-paragraph-style="blocks"] .book-text li p { margin: 0; }
 
 .editor-page h1 {
   font-family: "Palatino Linotype", "Palatino", serif;
@@ -590,6 +603,200 @@
   text-align: center;
   font-size: 13px;
   line-height: 1.6;
+}
+
+/* Listas: o preflight do Tailwind zera list-style, e sem isto os botoes de
+   lista pareciam nao fazer nada. */
+.editor-page ul,
+.editor-page ol {
+  margin: 0.4em 0;
+  padding-left: 2em;
+}
+.editor-page ul { list-style: disc; }
+.editor-page ol { list-style: decimal; }
+.editor-page li p { text-indent: 0; }
+
+/* Subtitulo do capitulo como epigrafe de livro (texto puro em metadata.subtitle).
+   A exportacao deve reproduzir: bloco recuado 35% a esquerda (largura 65% da
+   coluna de texto), 0,9 do corpo, italico, justificado, entrelinha 1,55;
+   atribuicao (regra em src/lib/epigraph.ts) em linha propria, a direita,
+   redondo, versalete, com "— " na frente; 2,5em de espaco antes do texto. */
+.epigraph-wrap {
+  position: relative;
+  margin: 0 0 2.5em 35%;
+}
+.epigraph {
+  font-style: italic;
+  font-size: 0.9em;
+  line-height: 1.55;
+  text-align: justify;
+  hyphens: auto;
+  color: var(--text-secondary);
+}
+.epigraph-input {
+  display: block;
+  width: 100%;
+  min-height: 1.55em;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text-primary);
+}
+.epigraph-input::placeholder { color: var(--text-secondary); opacity: 0.5; }
+.epigraph-input-idle {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.epigraph-view { cursor: text; }
+.editor-page .epigraph-view p {
+  margin: 0;
+  text-indent: 0;
+}
+.editor-page .epigraph-view .epigraph-attribution {
+  margin-top: 0.4em;
+  text-align: right;
+  font-style: normal;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.03em;
+}
+.editor-page .epigraph-view .epigraph-blank { height: 0.8em; }
+.editor-page .epigraph-view .epigraph-placeholder { text-align: left; opacity: 0.45; }
+
+/* Livro/Parte (section_type Part): pagina de titulo de parte. A exportacao
+   deve reproduzir: rotulo em versalete (all-small-caps) com espacamento 0,32em
+   e 1,3x o corpo; fio de 2,5em; nome centralizado a 2,6x o corpo; epigrafe
+   centralizada com 60% da largura. */
+.part-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 420px;
+  padding-top: 2em;
+}
+.part-title-wrap {
+  position: relative;
+  text-align: center;
+}
+.part-title-input {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  text-align: center;
+  font-size: 2em;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+.part-title-input-idle {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.part-title-view { cursor: text; }
+.part-label {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.32em;
+  padding-left: 0.32em; /* compensa o espaco depois da ultima letra */
+  font-size: 1.3em;
+  color: var(--text-secondary);
+}
+.part-rule {
+  width: 2.5em;
+  height: 1px;
+  margin: 1.1em auto;
+  background: var(--text-secondary);
+  opacity: 0.5;
+}
+.part-name {
+  font-size: 2.6em;
+  line-height: 1.15;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+.part-page .epigraph-wrap {
+  width: 60%;
+  margin: 2.5em auto 0;
+}
+/* Sem corpo aberto, a folha do Livro ocupa a area visivel e o bloco de titulo
+   fica no meio dela (na vertical). O botao do corpo vai para o canto, para nao
+   deslocar o centro. */
+.editor-page.part-sheet {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: 0;
+  margin-bottom: 0;
+}
+.part-sheet .part-page {
+  flex: 1;
+  min-height: 0;
+  padding-top: 0;
+}
+.part-host { position: relative; }
+.part-body-toggle {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+}
+.part-body-toggle button {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border: 1px solid #C8C5BD;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-family: var(--font-sans, system-ui), sans-serif;
+}
+.part-body-toggle button:hover { background: rgba(0, 0, 0, 0.04); }
+
+.part-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: #4A5A38;
+  background: #EEF1E6;
+  border-bottom: 1px solid #D5DBC6;
+  flex-shrink: 0;
+}
+.part-hint span { flex: 1; }
+.part-hint-convert {
+  padding: 2px 10px;
+  border: 1px solid #9DB07F;
+  border-radius: 4px;
+  background: #FFFFFF;
+  color: #3D5627;
+  font-weight: 600;
+}
+.part-hint-convert:hover { background: #F6F8F1; }
+.part-hint-dismiss {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  color: #6B7A58;
+  font-size: 15px;
+  line-height: 1;
+}
+.part-hint-dismiss:hover { background: rgba(0, 0, 0, 0.06); }
+
+/* Com o foco no titulo ou no subtitulo a barra nao age (so formata o corpo). */
+.format-bar-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+  filter: grayscale(1);
 }
 
 .editor-footer {

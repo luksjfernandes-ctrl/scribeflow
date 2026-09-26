@@ -122,7 +122,7 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
       >
         <EditorContent 
           editor={editor} 
-          className="composition-tiptap prose prose-invert max-w-none focus:outline-none min-h-[50vh] text-[#C8C8B0]"
+          className="composition-tiptap book-text prose prose-invert max-w-none focus:outline-none min-h-[50vh] text-[#C8C8B0]"
         />
       </div>
 

@@ -368,6 +368,14 @@ export default function App() {
     document.addEventListener('mouseup', onMouseUp);
   };
 
+  // O canal realtime de projects chama fetchProjects com o closure do efeito,
+  // em que activeProjectId ainda e null. Sem este ref, qualquer gravacao em
+  // projects (um ajuste, renomear o livro) era tratada como primeiro acesso:
+  // trocava o projeto ativo pelo atualizado mais recentemente e reabria
+  // "Meus Projetos" sempre que o ultimo projeto nao estava no localStorage.
+  const activeProjectIdRef = React.useRef<string | null>(null);
+  activeProjectIdRef.current = activeProjectId;
+
   // Supabase Data Sync
   useEffect(() => {
     if (!isAuthReady) return;
@@ -386,7 +394,7 @@ export default function App() {
 
         if (data && data.length > 0) {
           setProjects(data as Project[]);
-          if (!activeProjectId) {
+          if (!activeProjectIdRef.current) {
             const lastProjectId = localStorage.getItem('scribeflow-last-project');
             const matchProject = data.find(p => p.id === lastProjectId);
             
@@ -1176,9 +1184,20 @@ export default function App() {
     const updatedSettings = { ...project.settings, ...settings };
     setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, settings: updatedSettings } : p)));
     if (user) {
-      await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
+      // O supabase-js devolve { error } em vez de lancar.
+      const { error } = await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
+      if (error) {
+        console.error('[Supabase] Erro ao gravar os ajustes do projeto:', error.message);
+        setSaveStatus('error');
+      }
     }
   };
+
+  // Estilo de paragrafo do texto (editor, Scrivenings e Compose leem o atributo no <html>).
+  const paragraphStyle = project?.settings?.paragraph_style === 'blocks' ? 'blocks' : 'book';
+  useEffect(() => {
+    document.documentElement.dataset.paragraphStyle = paragraphStyle;
+  }, [paragraphStyle]);
 
   const toggleFolder = (id: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -1482,6 +1501,7 @@ export default function App() {
                         externalEditor={globalEditor}
                         onAddComment={handleAddComment}
                         suspendEditorContent={composeState !== 'closed'}
+                        onConvertToPart={() => handleTogglePart(selectedDoc.id)}
                       />
                     )
                   )}

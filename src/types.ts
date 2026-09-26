@@ -74,6 +74,9 @@ export interface ProjectSettings {
   theme: 'traditional' | 'dark';
   paper_width: number;
   background_opacity: number;
+  /** Livro: recuo de primeira linha, sem espaco entre paragrafos (padrao).
+   *  Blocos: sem recuo, com espaco entre paragrafos. Ausente = 'book'. */
+  paragraph_style?: 'book' | 'blocks';
 }
 
 export interface Project {
