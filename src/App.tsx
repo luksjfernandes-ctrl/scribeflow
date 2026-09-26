@@ -58,7 +58,7 @@ import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
-import { ContentBase, conflictSnapshot, needsConflictSnapshot } from './lib/conflict';
+import { DocBase, appendLostToNotes, mergeMetadata, resolveConflict } from './lib/conflict';
 import { SaveQueue, SaveStatus, DocFieldUpdates, mergeServerDocs, shouldRefetchOnRealtime } from './lib/persistence';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
@@ -162,62 +162,99 @@ export default function App() {
   const selectedDocIdRef = React.useRef<string | null>(null);
   selectedDocIdRef.current = selectedDocId;
   const globalEditorRef = React.useRef<ReturnType<typeof useEditor>>(null);
-  /** Por doc: a versão do banco de onde o corpo local partiu (ver lib/conflict.ts). */
-  const contentBaseRef = React.useRef(new Map<string, ContentBase>());
+  /** Por doc: a versão do banco de onde a aba partiu (ver lib/conflict.ts). */
+  const docBaseRef = React.useRef(new Map<string, DocBase>());
   const [saveQueue] = useState(() => new SaveQueue({
     getDoc: (id) => docsRef.current.find(d => d.id === id),
     write: async (docId, projectId, payload) => {
-      const base = contentBaseRef.current.get(docId);
-      const ours = typeof payload.content === 'string' ? payload.content : null;
-      const remember = () => contentBaseRef.current.set(docId, {
-        updatedAt: typeof payload.updated_at === 'number' ? payload.updated_at : null,
-        content: ours ?? base?.content ?? '',
-      });
+      // O supabase-js devolve { error } em vez de lancar, e um update barrado
+      // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
+      const update = (body: Record<string, unknown>, expectedAt?: number) => {
+        let q = supabase.from('docs').update(body).eq('id', docId).eq('project_id', projectId);
+        if (expectedAt !== undefined) q = q.eq('updated_at', expectedAt);
+        return q.select('id');
+      };
+      const stamp = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-      // Corpo: grava só se o banco ainda está na versão de onde partimos.
-      if (ours !== null && base && base.updatedAt !== null) {
-        const { data, error } = await supabase
-          .from('docs')
-          .update(payload)
-          .eq('id', docId)
-          .eq('project_id', projectId)
-          .eq('updated_at', base.updatedAt)
-          .select('id');
-        if (error) return { ok: false, retry: true, error: error.message };
-        if (data && data.length > 0) { remember(); return { ok: true }; }
+      let base = docBaseRef.current.get(docId);
+      let body = payload;
+      let merged = false;
+      // Metadata local na hora do envio: diz o que a aba mudou enquanto esperava.
+      const sentMeta = (payload.metadata ?? docsRef.current.find(d => d.id === docId)?.metadata) as DocumentMetadata | undefined;
 
-        // Outra aba gravou no meio: a versão dela vira snapshot e a nossa segue.
-        const { data: current, error: readError } = await supabase
-          .from('docs')
-          .select('title, content, metadata')
-          .eq('id', docId)
-          .eq('project_id', projectId)
-          .maybeSingle();
-        if (readError) return { ok: false, retry: true, error: readError.message };
-        if (!current) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
-        if (needsConflictSnapshot(base.content, current.content, ours)) {
-          const snap = conflictSnapshot(current.title, current.content, crypto.randomUUID(), Date.now());
-          const meta = (payload.metadata ?? current.metadata ?? {}) as DocumentMetadata;
-          payload = { ...payload, metadata: { ...meta, snapshots: [snap, ...(meta.snapshots || [])] } };
-          setDocs(curr => curr.map(d => d.id === docId
-            ? { ...d, metadata: { ...d.metadata, snapshots: [snap, ...(d.metadata?.snapshots || [])] } }
-            : d));
-          console.warn(`[Save] conflito no doc ${docId}: a versão de outra aba foi guardada em Snapshots.`);
+      const finish = () => {
+        if (base) {
+          docBaseRef.current.set(docId, {
+            updatedAt: typeof body.updated_at === 'number' ? body.updated_at : null,
+            title: typeof body.title === 'string' ? body.title : base.title,
+            content: typeof body.content === 'string' ? body.content : base.content,
+            metadata: (body.metadata as DocumentMetadata | undefined) ?? base.metadata,
+          });
+        }
+        if (merged && body.metadata) {
+          // O estado local recebe o que foi juntado, sem desfazer o que a aba
+          // mudou durante a gravacao (tres vias de novo: base = o que foi enviado).
+          const written = body.metadata as DocumentMetadata;
+          setDocs(curr => curr.map(d => {
+            if (d.id !== docId) return d;
+            const local = mergeMetadata(sentMeta, d.metadata, written);
+            return { ...d, metadata: appendLostToNotes(local.merged, local.lost, stamp()) };
+          }));
+        }
+        return { ok: true };
+      };
+
+      // Corpo, titulo e metadata: grava so se o banco ainda esta na versao de
+      // onde a aba partiu. Se outra aba gravou no meio, junta e tenta de novo.
+      const contested = 'content' in payload || 'metadata' in payload || 'title' in payload;
+      if (contested && base && base.updatedAt !== null) {
+        for (let attempt = 0; attempt < 3 && base.updatedAt !== null; attempt++) {
+          const { data, error } = await update(body, base.updatedAt);
+          if (error) return { ok: false, retry: true, error: error.message };
+          if (data && data.length > 0) return finish();
+
+          const { data: current, error: readError } = await supabase
+            .from('docs')
+            .select('title, content, metadata, updated_at')
+            .eq('id', docId)
+            .eq('project_id', projectId)
+            .maybeSingle();
+          if (readError) return { ok: false, retry: true, error: readError.message };
+          if (!current) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+
+          const r = resolveConflict({
+            base,
+            ours: {
+              title: typeof body.title === 'string' ? body.title : undefined,
+              content: typeof body.content === 'string' ? body.content : undefined,
+              metadata: body.metadata as DocumentMetadata | undefined,
+            },
+            current,
+            snapshotId: crypto.randomUUID(),
+            now: Date.now(),
+            stamp: stamp(),
+          });
+          body = { ...body, metadata: r.metadata };
+          merged = true;
+          if (r.snapshot || r.lost.length) {
+            console.warn(`[Save] conflito no doc ${docId}: versão de outra aba guardada (${r.snapshot ? 'snapshot do corpo' : ''}${r.snapshot && r.lost.length ? ', ' : ''}${r.lost.map(l => l.field).join(', ')}).`);
+          }
+          base = {
+            updatedAt: typeof current.updated_at === 'number' ? current.updated_at : null,
+            title: current.title,
+            content: current.content,
+            metadata: current.metadata || {},
+          };
         }
       }
 
-      // O supabase-js devolve { error } em vez de lancar, e um update barrado
-      // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
-      const { data, error } = await supabase
-        .from('docs')
-        .update(payload)
-        .eq('id', docId)
-        .eq('project_id', projectId)
-        .select('id');
+      const { data, error } = await update(body);
       if (error) return { ok: false, retry: true, error: error.message };
       if (!data || data.length === 0) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
-      if (ours !== null || base) remember();
-      return { ok: true };
+      // Gravacao sem a disputa (ordem, pasta): a base nao avanca, senao
+      // esconderia uma gravacao da outra aba feita no meio.
+      if (!contested) return { ok: true };
+      return finish();
     },
     onStatus: setSaveStatus,
     onError: (docId, error) => console.error(`[Save] falha ao gravar o doc ${docId}:`, error),
@@ -536,14 +573,25 @@ export default function App() {
       const serverDocs = (data || []) as Doc[];
       setDocs(curr => mergeServerDocs(curr, serverDocs, id => saveQueue.dirtyFields(id)));
 
-      // Corpo sem edicao local: o texto do banco passa a ser a base e, se for o
-      // documento aberto, entra no editor (senao a aba parada sobrescreveria o
-      // texto da outra ao voltar a digitar).
+      // Sem edicao local pendente, o banco passa a ser a base da proxima
+      // gravacao condicional. E, se o corpo do documento aberto mudou, o texto
+      // entra no editor (senao a aba parada sobrescreveria o da outra ao voltar
+      // a digitar).
       for (const d of serverDocs) {
-        if (saveQueue.dirtyFields(d.id).has('content')) continue;
+        const dirty = saveQueue.dirtyFields(d.id);
         // updated_at e coluna da tabela (o eco do realtime usa), fora do tipo Doc.
         const serverAt = (d as Doc & { updated_at?: unknown }).updated_at;
-        contentBaseRef.current.set(d.id, { updatedAt: typeof serverAt === 'number' ? serverAt : null, content: d.content || '' });
+        const known = docBaseRef.current.get(d.id);
+        const newer = typeof serverAt === 'number' && (known?.updatedAt == null || serverAt >= known.updatedAt);
+        if (!dirty.has('content') && !dirty.has('metadata') && !dirty.has('title') && (newer || !known)) {
+          docBaseRef.current.set(d.id, {
+            updatedAt: typeof serverAt === 'number' ? serverAt : null,
+            title: d.title,
+            content: d.content || '',
+            metadata: d.metadata || {},
+          });
+        }
+        if (dirty.has('content')) continue;
         const ed = globalEditorRef.current;
         if (d.id === selectedDocIdRef.current && ed && !ed.isDestroyed && seq > 1 && d.content !== ed.getHTML()) {
           const { from, to } = ed.state.selection;
