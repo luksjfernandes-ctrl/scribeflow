@@ -652,6 +652,84 @@
 .editor-page .epigraph-view .epigraph-blank { height: 0.8em; }
 .editor-page .epigraph-view .epigraph-placeholder { text-align: left; opacity: 0.45; }
 
+/* Livro/Parte (section_type Part): pagina de titulo de parte. A exportacao
+   deve reproduzir: rotulo em versalete (all-small-caps) com espacamento 0,32em
+   e 1,3x o corpo; fio de 2,5em; nome centralizado a 2,6x o corpo; epigrafe
+   centralizada com 60% da largura. */
+.part-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 560px;
+  padding-top: 3em;
+}
+.part-title-wrap {
+  position: relative;
+  text-align: center;
+}
+.part-title-input {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  text-align: center;
+  font-size: 2em;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+.part-title-input-idle {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.part-title-view { cursor: text; }
+.part-label {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.32em;
+  padding-left: 0.32em; /* compensa o espaco depois da ultima letra */
+  font-size: 1.3em;
+  color: var(--text-secondary);
+}
+.part-rule {
+  width: 2.5em;
+  height: 1px;
+  margin: 1.1em auto;
+  background: var(--text-secondary);
+  opacity: 0.5;
+}
+.part-name {
+  font-size: 2.6em;
+  line-height: 1.15;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+.part-page .epigraph-wrap {
+  width: 60%;
+  margin: 2.5em auto 0;
+}
+.part-body-toggle {
+  display: flex;
+  justify-content: center;
+  margin: 2.5em 0 1.5em;
+}
+.part-body-toggle button {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border: 1px solid #C8C5BD;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: transparent;
+  font-family: var(--font-sans, system-ui), sans-serif;
+}
+.part-body-toggle button:hover { background: rgba(0, 0, 0, 0.04); }
+
 /* Com o foco no titulo ou no subtitulo a barra nao age (so formata o corpo). */
 .format-bar-disabled {
   opacity: 0.4;

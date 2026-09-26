@@ -17,6 +17,7 @@ import { cn } from '../lib/utils';
 
 import { Doc } from '../types';
 import { parseEpigraph } from '../lib/epigraph';
+import { isPartDoc, parsePartTitle } from '../lib/part';
 
 interface EditorProps {
   content: string;
@@ -301,12 +302,25 @@ export function Editor({
 
   const pageFont = DISPLAY_FONTS[prefs.font] || DISPLAY_FONTS[DEFAULT_PREFS.font];
 
+  // Livro/Parte: pagina de titulo (rotulo + nome + epigrafe), corpo recolhido.
+  const isPart = isPartDoc(doc);
+  const partTitle = React.useMemo(() => parsePartTitle(title), [title]);
+  const editingTitle = focusedField === 'title';
+  const [partBodyOpen, setPartBodyOpen] = React.useState(false);
+  React.useEffect(() => setPartBodyOpen(false), [doc.id]);
+  const showBody = !isPart || partBodyOpen;
+  const focusAtEnd = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <FormatBar
         editor={editor}
         onAddComment={onAddComment}
-        disabled={focusedField !== null}
+        disabled={focusedField !== null || !showBody}
         prefs={prefs}
         onPrefsChange={changePrefs}
       />
@@ -323,8 +337,11 @@ export function Editor({
             fontSize: `${prefs.size}px`,
           }}
         >
+          <div className={cn(isPart && 'part-page')}>
+          <div className={cn(isPart && 'part-title-wrap')}>
           <textarea
             ref={titleRef}
+            aria-label={isPart ? 'Part title (e.g. Book I – Childhood)' : 'Document title'}
             rows={1}
             value={titleDraft}
             onChange={(e) => {
@@ -337,9 +354,28 @@ export function Editor({
               // Saiu com o campo vazio: volta ao ultimo titulo gravado.
               if (!titleDraft.trim()) setTitleDraft(title);
             }}
-            className="w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2 resize-none overflow-hidden"
-            placeholder="Untitled Document"
+            className={
+              isPart
+                ? cn('part-title-input', !editingTitle && 'part-title-input-idle')
+                : 'w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2 resize-none overflow-hidden'
+            }
+            placeholder={isPart ? 'Book I – Childhood' : 'Untitled Document'}
           />
+          {isPart && !editingTitle && (
+            <div
+              className="part-title-view"
+              aria-hidden="true"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                focusAtEnd(titleRef.current);
+              }}
+            >
+              {partTitle.label && <div className="part-label">{partTitle.label}</div>}
+              {partTitle.label && <div className="part-rule" />}
+              <div className="part-name">{partTitle.name || 'Untitled Part'}</div>
+            </div>
+          )}
+          </div>
           {/* Subtitulo como epigrafe de livro. O textarea e o controle de verdade
               (foco, teclado, leitor de tela); fora de edicao ele fica invisivel e
               o bloco formatado aparece no lugar. O dado continua texto puro. */}
@@ -366,10 +402,7 @@ export function Editor({
                 lang="pt-BR"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  const el = subtitleRef.current;
-                  if (!el) return;
-                  el.focus();
-                  el.setSelectionRange(el.value.length, el.value.length);
+                  focusAtEnd(subtitleRef.current);
                 }}
               >
                 {epigraph.length === 0 ? (
@@ -391,7 +424,15 @@ export function Editor({
           {/* O Modo de Composicao monta este mesmo editor no overlay. Manter os
               dois EditorContent vivos faz o TipTap entregar o view.dom a apenas
               um deles, e o overlay abre vazio. */}
-          {suspendEditorContent ? (
+          </div>
+          {isPart && (
+            <div className="part-body-toggle">
+              <button type="button" onClick={() => setPartBodyOpen((open) => !open)}>
+                {partBodyOpen ? 'Hide text' : wordCount > 0 ? `Show text (${wordCount} words)` : 'Add text to this part'}
+              </button>
+            </div>
+          )}
+          {!showBody ? null : suspendEditorContent ? (
             <div className="min-h-[500px]" aria-hidden="true" />
           ) : (
             <EditorContent 
