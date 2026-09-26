@@ -61,19 +61,33 @@ export const splitPartTitle = (title: string): { label?: string; name: string } 
   return { label: m[1].trim(), name: m[2].trim() };
 };
 
+const DASH = /^(?:—|–|--|-\s)\s*/;
+/** Termina em ponto final (ou ! ? …), mesmo seguido de aspas ou parênteses. */
+const ENDS_SENTENCE = /[.!?…][\s"'”’»)\]]*$/;
+const MAX_ATTRIBUTION_WORDS = 6;
+
 /**
- * Subtítulo em texto puro → epígrafe. As linhas finais que começam com
- * travessão (—, –, -- ou "- ") são a atribuição.
+ * A última linha é atribuição quando começa com travessão, ou quando é curta
+ * (até 6 palavras) e não termina em ponto final, como "Platão, A República".
+ * Mesma regra do editor (sf-editor); uma linha só é sempre a citação.
  */
+export const isAttributionLine = (line: string, isLastOfSeveral: boolean): boolean => {
+  if (DASH.test(line)) return true;
+  if (!isLastOfSeveral) return false;
+  const words = line.split(/\s+/).filter(Boolean).length;
+  return words > 0 && words <= MAX_ATTRIBUTION_WORDS && !ENDS_SENTENCE.test(line);
+};
+
+/** Subtítulo em texto puro → epígrafe (citação + atribuição opcional). */
 export const parseEpigraph = (subtitle: string | undefined | null): Epigraph | null => {
   if (!subtitle) return null;
   const lines = subtitle.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (lines.length === 0) return null;
-  const DASH = /^(?:—|–|--|-\s)\s*/;
   let cut = lines.length;
-  while (cut > 0 && DASH.test(lines[cut - 1])) cut--;
-  // Tudo é atribuição? Então não é atribuição, é o texto.
-  if (cut === 0) return { lines };
+  // Várias linhas finais com travessão formam uma atribuição só.
+  while (cut > 1 && DASH.test(lines[cut - 1])) cut--;
+  if (cut === lines.length && lines.length > 1 && isAttributionLine(lines[cut - 1], true)) cut--;
+  if (cut === lines.length) return { lines };
   const attribution = lines.slice(cut).map((l) => l.replace(DASH, '')).join(' ').trim();
   return { lines: lines.slice(0, cut), ...(attribution ? { attribution } : {}) };
 };

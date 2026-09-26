@@ -9,7 +9,7 @@ import type { Doc } from '../src/types.ts'
 import { parseHtml, trimEmptyBlocks } from '../src/export/html.ts'
 import { compileManuscript, parseEpigraph, safeFileName, splitPartTitle } from '../src/export/compile.ts'
 import { buildPdfDefinition, PDF_FONT, type PdfDefinition } from '../src/export/pdf.ts'
-import { buildDocx } from '../src/export/docx.ts'
+import { buildDocx, withFontTable } from '../src/export/docx.ts'
 import { renderRtf, renderTxt, rtfEscape } from '../src/export/text.ts'
 
 // ---------- HTML → blocos ----------
@@ -59,6 +59,19 @@ test('parseEpigraph separa a atribuição com travessão', () => {
   assert.deepEqual(parseEpigraph('a\n-- Autor'), { lines: ['a'], attribution: 'Autor' })
   assert.equal(parseEpigraph('  \n '), null)
   assert.equal(parseEpigraph(undefined), null)
+})
+
+test('parseEpigraph: última linha curta sem ponto final é a atribuição, mesmo sem travessão', () => {
+  assert.deepEqual(parseEpigraph('Conhece-te a ti mesmo.\nPlatão, A República'), { lines: ['Conhece-te a ti mesmo.'], attribution: 'Platão, A República' })
+  // termina em ponto: é citação
+  assert.deepEqual(parseEpigraph('Primeira linha\nNão sou nada.'), { lines: ['Primeira linha', 'Não sou nada.'] })
+  // mais de 6 palavras: é citação
+  assert.deepEqual(parseEpigraph('Verso um\nsete palavras aqui sem ponto nenhum mesmo'), { lines: ['Verso um', 'sete palavras aqui sem ponto nenhum mesmo'] })
+  // "?" e "…" também fecham frase; aspas depois do ponto também
+  assert.equal(parseEpigraph('a\nQuem sou eu?')?.attribution, undefined)
+  assert.equal(parseEpigraph('a\nE disse “basta.”')?.attribution, undefined)
+  // linha única nunca é atribuição
+  assert.deepEqual(parseEpigraph('Sêneca'), { lines: ['Sêneca'] })
 })
 
 test('splitPartTitle divide rótulo e nome', () => {
@@ -171,6 +184,42 @@ test('PDF: folha de rosto e páginas de Livro sem número; o resto numerado', ()
   assert.deepEqual(secs.map((s) => s.footer === null ? 'sem' : typeof s.footer), ['sem', 'function', 'sem', 'function', 'sem', 'function'])
 })
 
+const findAll = (node: unknown, pred: (n: Record<string, unknown>) => boolean, out: Record<string, unknown>[] = []) => {
+  if (Array.isArray(node)) node.forEach((n) => findAll(n, pred, out))
+  else if (node && typeof node === 'object') {
+    const n = node as Record<string, unknown>
+    if (pred(n)) out.push(n)
+    Object.values(n).forEach((v) => findAll(v, pred, out))
+  }
+  return out
+}
+
+test('PDF: atribuição em redondo e versalete, alinhada à direita, com travessão', () => {
+  const def = buildPdfDefinition(compileManuscript(projeto(), 'O Livro'))
+  const [attr] = findAll(def.content, (n) => n.text === '— Autor')
+  assert.deepEqual({ italics: attr.italics, features: attr.fontFeatures, align: attr.alignment }, { italics: false, features: ['smcp'], align: 'right' })
+})
+
+test('PDF: página de Livro é uma célula da altura da página, centralizada na vertical', () => {
+  const secs = sections(buildPdfDefinition(compileManuscript(projeto(), 'O Livro')))
+  const table = secs[2].section[0].table as { heights: number[]; body: { verticalAlignment: string }[][] }
+  assert.equal(table.body[0][0].verticalAlignment, 'middle')
+  assert.ok(table.heights[0] > 400 && table.heights[0] < 595)
+})
+
+test('PDF: estilo Livro recua 1,25em menos depois de título; Blocos não recua e espaça', () => {
+  const docs = projeto()
+  docs.find((d) => d.id === 'Capítulo 3')!.content = '<p>um</p><p>dois</p><hr><p>três</p><p style="text-align: center;">quatro</p>'
+  const para = (style: 'book' | 'blocks') => {
+    const def = buildPdfDefinition(compileManuscript(docs, 'x'), { paragraphStyle: style })
+    const ps = findAll(def.content, (n) => Array.isArray(n.text) && ['um', 'dois', 'três', 'quatro'].includes((n.text as { text: string }[])[0]?.text))
+    return ps.map((n) => [(n.text as { text: string }[])[0].text, n.leadingIndent ?? 0, (n.margin as number[] | undefined)?.[3] ?? 0])
+  }
+  assert.deepEqual(para('book'), [['um', 0, 0], ['dois', 13.75, 0], ['três', 0, 0], ['quatro', 0, 0]])
+  assert.deepEqual(para('blocks').map(([t, i]) => [t, i]), [['um', 0], ['dois', 0], ['três', 0], ['quatro', 0]])
+  assert.ok(para('blocks').every(([, , gap]) => (gap as number) > 0))
+})
+
 test('PDF: renderiza de verdade com a fonte embutida e sem página em branco', async () => {
   const require = createRequire(import.meta.url)
   const pdfmake = require('pdfmake')
@@ -193,14 +242,22 @@ test('DOCX: estilos de capítulo, epígrafe, corpo e Livro, com quebra por capí
   seq = 0
   const docs = projeto()
   docs.find((d) => d.id === 'Capítulo 1')!.content = '<p>Com <strong>negrito</strong> e <em>itálico</em>.</p><p style="text-align: center;">Centro</p>'
-  const buf = await Packer.toBuffer(buildDocx(compileManuscript(docs, 'O Livro')))
-  const zip = await JSZip.loadAsync(buf)
+  const zip = await withFontTable(await Packer.toBuffer(buildDocx(compileManuscript(docs, 'O Livro'))))
   const xml = await zip.file('word/document.xml')!.async('string')
   const styles = await zip.file('word/styles.xml')!.async('string')
   const count = (re: RegExp) => (xml.match(re) ?? []).length
+  // OOXML só aceita medida inteira; "680.4" fazia o leitor descartar o alinhamento do parágrafo
+  const numbering = await zip.file('word/numbering.xml')!.async('string')
+  for (const part of [xml, styles, numbering]) assert.doesNotMatch(part, /w:\w+="-?\d+\.\d+"/)
   assert.equal(count(/<w:pStyle w:val="Heading1"\/>/g), 4)
-  assert.equal(count(/<w:pageBreakBefore\/>/g), 4) // só os capítulos; Livro abre seção nova
-  assert.equal(count(/<w:type w:val="nextPage"\/>/g), 2)
+  // Seções: rosto | Introdução | Livro I | Cap 1, Cap 2 | Livro II | Cap 3. Cada seção abre
+  // página; só o Cap 2 (que não abre seção) precisa de quebra própria.
+  assert.equal(count(/<w:pageBreakBefore\/>/g), 1)
+  assert.equal(count(/<w:type w:val="nextPage"\/>/g), 5)
+  // rosto e Livros centralizados na vertical por espaço antes (o vAlign de seção o Pages e o LibreOffice ignoram)
+  const antes = [...xml.matchAll(/<w:pStyle w:val="(TituloLivro|ParteRotulo)"\/><w:spacing w:before="(\d+)"\/>/g)]
+  assert.equal(antes.length, 3)
+  for (const [, , tw] of antes) assert.ok(Number(tw) > 4000 && Number(tw) < 7000, tw)
   assert.equal(count(/<w:pStyle w:val="ParteTitulo"\/>/g), 2)
   assert.equal(count(/<w:pStyle w:val="Epigrafe"\/>/g), 2)
   assert.equal(count(/<w:pStyle w:val="EpigrafeAutor"\/>/g), 1)
@@ -211,7 +268,16 @@ test('DOCX: estilos de capítulo, epígrafe, corpo e Livro, com quebra por capí
   assert.match(xml, /<w:pStyle w:val="CorpoPrimeiro"\/><w:jc w:val="center"\/><\/w:pPr><w:r><w:t xml:space="preserve">Centro/)
   assert.doesNotMatch(xml, /Filho apagado|Nota fora/)
   assert.match(styles, /w:styleId="Epigrafe"/)
-  assert.match(styles, /Garamond/)
+  assert.match(styles, /w:ascii="Palatino"/)
+  const fonts = await zip.file('word/fontTable.xml')!.async('string')
+  assert.match(fonts, /<w:font w:name="Palatino"><w:altName w:val="Palatino Linotype"\/>.*?<w:family w:val="roman"\/>/)
+  // parágrafo de livro: recuo de 1,25em (15 pt = 300 twips), sem espaço depois
+  assert.match(styles, /w:styleId="Corpo".*?<w:ind w:firstLine="300"\/>/s)
+  // epígrafe alinhada à esquerda, não justificada
+  assert.match(styles, /w:styleId="Epigrafe"((?!<\/w:style>).)*<w:jc w:val="left"\/>/s)
+  // atribuição em versalete e redondo
+  assert.match(styles, /w:styleId="EpigrafeAutor".*?<w:smallCaps\/>.*?<\/w:style>/s)
+  assert.match(styles, /w:styleId="EpigrafeAutor"((?!<\/w:style>).)*<w:i w:val="false"\/>/s)
 })
 
 // ---------- TXT / RTF ----------

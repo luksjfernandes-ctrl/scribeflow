@@ -20,9 +20,24 @@ export const PDF_FONT = 'EBGaramond';
 const CM = 72 / 2.54;
 /** Formato 14 × 21 cm, o mais comum no livro brasileiro. */
 export const PAGE = { width: 14 * CM, height: 21 * CM };
-const MARGINS = [2 * CM, 1.8 * CM, 1.7 * CM, 2.2 * CM]; // esq., topo, dir., base
+// Laterais iguais: é PDF de leitura (página simples), e o que é centralizado cai no meio da folha.
+const MARGINS = [1.9 * CM, 1.8 * CM, 1.9 * CM, 2.2 * CM]; // esq., topo, dir., base
 const BODY_SIZE = 11;
-const INDENT = 1.2 * 11; // recuo de primeira linha: ~1 quadratim
+const INDENT = 1.25 * BODY_SIZE; // recuo de primeira linha de livro: 1,25em
+const LINE_HEIGHT = 1.32;
+/** Título de capítulo afundado: o topo do título fica a ~1/3 da altura da página. */
+const CHAPTER_DROP = PAGE.height / 3 - MARGINS[1];
+/** Altura útil da página (entre as margens de cima e de baixo). */
+const CONTENT_HEIGHT = PAGE.height - MARGINS[1] - MARGINS[3];
+
+/**
+ * Estilo de parágrafo. 'book': recuo de primeira linha e nenhum espaço entre
+ * parágrafos, sem recuo no primeiro depois de título, cena ou separador.
+ * 'blocks': sem recuo, com espaço entre parágrafos.
+ */
+export type ParagraphStyle = 'book' | 'blocks';
+export interface PdfOptions { paragraphStyle?: ParagraphStyle }
+const BLOCK_GAP = 0.6 * BODY_SIZE;
 
 const runNode = (r: Run): PdfNode => {
   const n: PdfNode = { text: r.text };
@@ -35,19 +50,23 @@ const runNode = (r: Run): PdfNode => {
 
 const runsNode = (runs: Run[]): PdfNode[] | string => (runs.length ? runs.map(runNode) : ' ');
 
+interface BlockOpts { bookIndent: boolean; defaultAlign: Align; style: ParagraphStyle }
+
 /**
- * Blocos do corpo. `bookIndent`: recuo de primeira linha, menos no primeiro
- * parágrafo depois de título, como em livro.
+ * Blocos do corpo. `bookIndent`: aplica o estilo de parágrafo (fora de lista
+ * e citação, que têm recuo próprio).
  */
-const blocksToNodes = (blocks: Block[], opts: { bookIndent: boolean; defaultAlign: Align }): PdfNode[] => {
+const blocksToNodes = (blocks: Block[], opts: BlockOpts): PdfNode[] => {
   const out: PdfNode[] = [];
   let afterHeading = true;
   for (const b of blocks) {
     switch (b.type) {
       case 'paragraph': {
         const align = b.align ?? opts.defaultAlign;
-        const indent = opts.bookIndent && !afterHeading && (align === 'justify' || align === 'left') && b.runs.length > 0;
-        out.push({ text: runsNode(b.runs), alignment: align, ...(indent ? { leadingIndent: INDENT } : {}) });
+        const book = opts.style === 'book';
+        const indent = opts.bookIndent && book && !afterHeading && (align === 'justify' || align === 'left') && b.runs.length > 0;
+        const gap = opts.bookIndent && !book ? { margin: [0, 0, 0, BLOCK_GAP] } : {};
+        out.push({ text: runsNode(b.runs), alignment: align, ...(indent ? { leadingIndent: INDENT } : {}), ...gap });
         afterHeading = b.runs.length === 0;
         break;
       }
@@ -66,14 +85,14 @@ const blocksToNodes = (blocks: Block[], opts: { bookIndent: boolean; defaultAlig
         break;
       }
       case 'list': {
-        const items = b.items.map((item) => ({ stack: blocksToNodes(item, { bookIndent: false, defaultAlign: 'left' }) }));
+        const items = b.items.map((item) => ({ stack: blocksToNodes(item, { ...opts, bookIndent: false, defaultAlign: 'left' }) }));
         out.push({ [b.ordered ? 'ol' : 'ul']: items, margin: [INDENT, 4, 0, 4] });
         afterHeading = true;
         break;
       }
       case 'blockquote':
         out.push({
-          stack: blocksToNodes(b.children, { bookIndent: false, defaultAlign: 'justify' }),
+          stack: blocksToNodes(b.children, { ...opts, bookIndent: false, defaultAlign: 'justify' }),
           fontSize: BODY_SIZE - 1,
           margin: [INDENT * 1.6, 6, INDENT * 1.6, 6],
         });
@@ -88,19 +107,43 @@ const blocksToNodes = (blocks: Block[], opts: { bookIndent: boolean; defaultAlig
   return out;
 };
 
-/** Epígrafe de livro: bloco recuado, itálico, justificado, corpo menor; atribuição à direita. */
+/**
+ * Epígrafe de livro: bloco recuado, itálico, corpo menor, alinhado à esquerda
+ * (justificar poucas palavras por linha abre buracos). A atribuição vem em
+ * linha própria, à direita, com "— ", em redondo e versalete (smcp da EB Garamond).
+ */
 export const epigraphNode = (e: Epigraph): PdfNode => ({
   stack: [
-    ...e.lines.map((line) => ({ text: line, italics: true, alignment: 'justify' })),
-    ...(e.attribution ? [{ text: `— ${e.attribution}`, alignment: 'right', margin: [0, 4, 0, 0], fontSize: BODY_SIZE - 2 }] : []),
+    ...e.lines.map((line) => ({ text: line, italics: true, alignment: 'left' })),
+    ...(e.attribution
+      ? [{ text: `— ${e.attribution}`, italics: false, fontFeatures: ['smcp'], alignment: 'right', margin: [0, 5, 0, 0], fontSize: BODY_SIZE - 1.5 }]
+      : []),
   ],
   fontSize: BODY_SIZE - 1.5,
-  lineHeight: 1.2,
-  margin: [PAGE.width * 0.22, 0, 0, 22],
+  lineHeight: 1.25,
+  margin: [PAGE.width * 0.25, 0, 0, 30],
   unbreakable: true,
 });
 
-const partNodes = (item: CompileItem): PdfNode[] => {
+/** Tabela de uma célula da altura da página, para centralizar na vertical. */
+const NO_LINES = {
+  hLineWidth: () => 0, vLineWidth: () => 0,
+  paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0,
+};
+
+/** Conteúdo centralizado na vertical numa página própria. */
+const verticallyCentered = (stack: PdfNode[]): PdfNode => ({
+  table: {
+    widths: ['*'],
+    // 1 pt de folga: a célula da altura exata empurraria para a página seguinte.
+    heights: [CONTENT_HEIGHT - 1],
+    body: [[{ stack, verticalAlignment: 'middle' }]],
+  },
+  layout: NO_LINES,
+});
+
+/** Página de Livro/Parte: rótulo, nome e epígrafe centralizados na vertical. */
+const partNodes = (item: CompileItem, opts: BlockOpts): PdfNode[] => {
   const head: PdfNode[] = [];
   if (item.label) {
     head.push({ text: item.label.toUpperCase(), alignment: 'center', fontSize: 10.5, characterSpacing: 2.2, margin: [0, 0, 0, 10] });
@@ -114,19 +157,17 @@ const partNodes = (item: CompileItem): PdfNode[] => {
     alignment: 'center',
     fontSize: 24,
     lineHeight: 1.1,
-    margin: [0, 0, 0, 28],
+    margin: [0, 0, 0, item.epigraph || item.blocks.length ? 28 : 0],
   });
-  return [
-    {
-      stack: [...head, ...(item.epigraph ? [epigraphNode(item.epigraph)] : [])],
-      margin: [0, PAGE.height * 0.24, 0, 0],
-      pageBreak: 'before',
-    },
-    ...blocksToNodes(item.blocks, { bookIndent: true, defaultAlign: 'justify' }),
+  const stack = [
+    ...head,
+    ...(item.epigraph ? [epigraphNode(item.epigraph)] : []),
+    ...blocksToNodes(item.blocks, opts),
   ];
+  return [verticallyCentered(stack)];
 };
 
-const chapterNodes = (item: CompileItem, partId: string | null): PdfNode[] => {
+const chapterNodes = (item: CompileItem, partId: string | null, opts: BlockOpts): PdfNode[] => {
   const head: PdfNode[] = [];
   if (item.title) {
     head.push({
@@ -136,19 +177,19 @@ const chapterNodes = (item: CompileItem, partId: string | null): PdfNode[] => {
       alignment: 'center',
       fontSize: 20,
       lineHeight: 1.1,
-      margin: [0, 0, 0, item.epigraph ? 22 : 30],
+      margin: [0, 0, 0, item.epigraph ? 30 : 40],
     });
   }
   if (item.epigraph) head.push(epigraphNode(item.epigraph));
   return [
-    { stack: head.length ? head : [{ text: '' }], margin: [0, PAGE.height * 0.12, 0, 0], pageBreak: 'before' },
-    ...blocksToNodes(item.blocks, { bookIndent: true, defaultAlign: 'justify' }),
+    { stack: head.length ? head : [{ text: '' }], margin: [0, CHAPTER_DROP, 0, 0], pageBreak: 'before' },
+    ...blocksToNodes(item.blocks, opts),
   ];
 };
 
-const sectionNodes = (item: CompileItem): PdfNode[] => {
+const sectionNodes = (item: CompileItem, opts: BlockOpts): PdfNode[] => {
   const out: PdfNode[] = [];
-  const top = item.startsPage ? PAGE.height * 0.12 : 16;
+  const top = item.startsPage ? CHAPTER_DROP : 18;
   if (item.title) {
     out.push({
       text: item.title,
@@ -162,7 +203,7 @@ const sectionNodes = (item: CompileItem): PdfNode[] => {
     out.push({ text: '', pageBreak: 'before' });
   }
   if (item.epigraph) out.push(epigraphNode(item.epigraph));
-  out.push(...blocksToNodes(item.blocks, { bookIndent: true, defaultAlign: 'justify' }));
+  out.push(...blocksToNodes(item.blocks, opts));
   return out;
 };
 
@@ -185,9 +226,10 @@ const section = (nodes: PdfNode[], numbered: boolean): PdfNode => {
   };
 };
 
-export const buildPdfDefinition = (ms: Manuscript): PdfDefinition => {
+export const buildPdfDefinition = (ms: Manuscript, options: PdfOptions = {}): PdfDefinition => {
+  const opts: BlockOpts = { bookIndent: true, defaultAlign: 'justify', style: options.paragraphStyle ?? 'book' };
   const content: PdfNode[] = [
-    section([{ stack: [{ text: ms.title, fontSize: 26, alignment: 'center', lineHeight: 1.1 }], margin: [0, PAGE.height * 0.28, 0, 0] }], false),
+    section([verticallyCentered([{ text: ms.title, fontSize: 26, alignment: 'center', lineHeight: 1.1 }])], false),
   ];
   let body: PdfNode[] = [];
   const flush = () => {
@@ -199,9 +241,9 @@ export const buildPdfDefinition = (ms: Manuscript): PdfDefinition => {
     if (item.kind === 'part') {
       flush();
       partId = item.id;
-      content.push(section(partNodes(item), false));
-    } else if (item.kind === 'chapter') body.push(...chapterNodes(item, partId));
-    else body.push(...sectionNodes(item));
+      content.push(section(partNodes(item, opts), false));
+    } else if (item.kind === 'chapter') body.push(...chapterNodes(item, partId, opts));
+    else body.push(...sectionNodes(item, opts));
   }
   flush();
 
@@ -209,7 +251,7 @@ export const buildPdfDefinition = (ms: Manuscript): PdfDefinition => {
     pageSize: { width: PAGE.width, height: PAGE.height },
     pageMargins: MARGINS,
     info: { title: ms.title, creator: 'ScribeFlow', producer: 'ScribeFlow' },
-    defaultStyle: { font: PDF_FONT, fontSize: BODY_SIZE, lineHeight: 1.22 },
+    defaultStyle: { font: PDF_FONT, fontSize: BODY_SIZE, lineHeight: LINE_HEIGHT },
     content,
   };
 };
@@ -254,7 +296,7 @@ const loadPdfMake = (): Promise<PdfMakeLike> => {
   return pdfMakeReady;
 };
 
-export const renderPdf = async (ms: Manuscript): Promise<Blob> => {
+export const renderPdf = async (ms: Manuscript, options: PdfOptions = {}): Promise<Blob> => {
   const pdfMake = await loadPdfMake();
-  return pdfMake.createPdf(buildPdfDefinition(ms)).getBlob();
+  return pdfMake.createPdf(buildPdfDefinition(ms, options)).getBlob();
 };

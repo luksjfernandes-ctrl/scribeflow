@@ -8,6 +8,12 @@ import { renderRtf, renderTxt } from './text';
 
 export type ExportFormat = 'pdf' | 'docx' | 'rtf' | 'txt' | 'epub';
 
+export interface ExportOptions {
+  /** Estilo de parágrafo do livro. Padrão 'book' (recuo de primeira linha). Quando
+   *  existir a opção de Ajustes "Estilo de parágrafo: Livro / Blocos", passar aqui. */
+  paragraphStyle?: 'book' | 'blocks';
+}
+
 export class NothingToExportError extends Error {
   constructor() {
     super('Nenhum documento do Manuscript está marcado para compilar.');
@@ -26,7 +32,12 @@ const download = (blob: Blob, filename: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 };
 
-export const exportManuscript = async (format: ExportFormat, docs: Doc[], projectName: string | undefined): Promise<void> => {
+export const exportManuscript = async (
+  format: ExportFormat,
+  docs: Doc[],
+  projectName: string | undefined,
+  options: ExportOptions = {},
+): Promise<void> => {
   const ms = compileManuscript(docs, projectName || 'Manuscrito');
   if (ms.items.length === 0) throw new NothingToExportError();
   const base = safeFileName(projectName);
@@ -34,12 +45,12 @@ export const exportManuscript = async (format: ExportFormat, docs: Doc[], projec
   switch (format) {
     case 'pdf': {
       const { renderPdf } = await import('./pdf');
-      download(await renderPdf(ms), `${base}.pdf`);
+      download(await renderPdf(ms, options), `${base}.pdf`);
       return;
     }
     case 'docx': {
       const { renderDocx } = await import('./docx');
-      download(await renderDocx(ms), `${base}.docx`);
+      download(await renderDocx(ms, options), `${base}.docx`);
       return;
     }
     case 'rtf':

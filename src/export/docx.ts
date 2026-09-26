@@ -4,8 +4,8 @@
  * corpo com a formatação do editor. Tudo por estilos nomeados, para quem abrir
  * no Word poder ajustar o livro inteiro mudando um estilo.
  *
- * O DOCX sai em A4, que é o que editora e revisor esperam para editar; o PDF
- * sai em 14 × 21 cm, para ler.
+ * O DOCX sai em A4 (para editar), com margens de livro: mancha de ~13,4 cm, que
+ * dá ~70 caracteres por linha em Palatino 12. O PDF sai em 14 × 21 cm.
  */
 import {
   AlignmentType,
@@ -20,15 +20,28 @@ import {
   TextRun,
   type ISectionOptions,
 } from 'docx';
-import type { Align, Block, Run } from './html';
+import JSZip from 'jszip';
+import { blockText, type Align, type Block, type Run } from './html';
 import type { CompileItem, Epigraph, Manuscript } from './compile';
 
-/** Garamond vem com o Office no Mac e no Windows. */
-export const DOCX_FONT = 'Garamond';
+/**
+ * Palatino, a mesma fonte do editor. A EB Garamond do PDF não vai no DOCX
+ * porque quase ninguém a tem instalada (no Mac do Lucas o Pages caiu em Times).
+ * Sem Palatino (Windows), o fontTable aponta Palatino Linotype e o panose de
+ * uma romana, para o Word achar Palatino Linotype ou Book Antiqua.
+ */
+export const DOCX_FONT = 'Palatino';
+export const DOCX_FONT_ALT = 'Palatino Linotype';
 
 const CM = 567; // twips por centímetro
+/** Centímetros em twips inteiros: o OOXML rejeita medida fracionária e o leitor descarta o parágrafo (alinhamento incluso). */
+const cm = (n: number): number => Math.round(n * CM);
 const PT = 2; // meios-pontos por ponto
 const BODY_PT = 12;
+/** Entrelinha 1,35 (em 240 avos de linha). */
+const LINE = Math.round(240 * 1.35);
+/** Recuo de primeira linha: 1,25em = 15 pt = 300 twips (≈ 0,53 cm). */
+export const BOOK_INDENT = 1.25 * BODY_PT * 20;
 
 export const STYLE = {
   body: 'Corpo',
@@ -119,8 +132,17 @@ const blocksToParagraphs = (blocks: Block[], ctx: BodyCtx, opts: { style: string
   return out;
 };
 
+/** Espaço entre a epígrafe e o corpo. */
+const EPIGRAPH_AFTER = cm(1.1);
+
 const epigraphParagraphs = (e: Epigraph): Paragraph[] => [
-  ...e.lines.map((line) => new Paragraph({ style: STYLE.epigraph, children: [new TextRun(line)] })),
+  ...e.lines.map((line, i) =>
+    new Paragraph({
+      style: STYLE.epigraph,
+      children: [new TextRun(line)],
+      // Sem atribuição, o espaço até o corpo fica na última linha da citação.
+      ...(!e.attribution && i === e.lines.length - 1 ? { spacing: { after: EPIGRAPH_AFTER } } : {}),
+    })),
   ...(e.attribution ? [new Paragraph({ style: STYLE.attribution, children: [new TextRun(`— ${e.attribution}`)] })] : []),
 ];
 
@@ -130,36 +152,70 @@ const numberedFooter = () =>
 const emptyFooter = () => new Footer({ children: [new Paragraph({ children: [] })] });
 
 const PAGE = {
-  size: { width: 21 * CM, height: 29.7 * CM },
-  margin: { top: 2.5 * CM, bottom: 2.5 * CM, left: 3 * CM, right: 2.5 * CM, footer: 1.2 * CM },
+  size: { width: cm(21), height: cm(29.7) },
+  margin: { top: cm(3), bottom: cm(3), left: cm(3.8), right: cm(3.8), footer: cm(1.5) },
+};
+
+/** Altura útil da página, em twips. */
+const CONTENT_HEIGHT = PAGE.size.height - PAGE.margin.top - PAGE.margin.bottom;
+/** Altura de uma linha em twips: corpo × 1,2 (entrelinha simples da Palatino) × fator de entrelinha. */
+const lineTw = (sizePt: number, factor = LINE / 240) => sizePt * 1.2 * factor * 20;
+/** Linhas que um texto ocupa, estimando a largura média do caractere em ~0,45em. */
+const wrappedLines = (text: string, sizePt: number, widthTw: number) =>
+  Math.max(1, Math.ceil((text.length * sizePt * 0.45 * 20) / widthTw));
+
+/**
+ * Espaço antes do primeiro parágrafo para centralizar o bloco na vertical.
+ * O `w:vAlign` de seção seria o jeito do Word, mas o LibreOffice e o Pages o
+ * ignoram; espaço antes funciona em todos. A altura é estimada (±1 linha).
+ */
+const centeredBefore = (blockTw: number) => Math.max(0, Math.round((CONTENT_HEIGHT - blockTw) / 2));
+
+const partBlockHeight = (item: CompileItem): number => {
+  const width = PAGE.size.width - PAGE.margin.left - PAGE.margin.right;
+  let h = 0;
+  if (item.label) h += lineTw(12) + cm(0.3);
+  h += wrappedLines(item.name || item.title, 28, width) * lineTw(28, 1) + cm(1.2);
+  if (item.epigraph) {
+    const epWidth = width - cm(5);
+    for (const line of item.epigraph.lines) h += wrappedLines(line, 10.5, epWidth) * lineTw(10.5, 276 / 240);
+    if (item.epigraph.attribution) h += cm(0.2) + lineTw(10.5);
+    h += EPIGRAPH_AFTER;
+  }
+  for (const b of item.blocks) h += wrappedLines(blockText(b), BODY_PT, width) * lineTw(BODY_PT);
+  return h;
 };
 
 /**
- * Cada Livro/Parte abre uma seção nova do Word, com a primeira página sem
- * número (titlePage). Assim a folha de rosto e as páginas de Livro ficam sem
- * número e a numeração continua corrida no resto.
+ * Seções do Word, como no PDF: folha de rosto e cada Livro/Parte numa seção
+ * própria, com o bloco centralizado na vertical e sem número; o corpo em seções
+ * numeradas. A numeração continua corrida de uma seção para a outra.
  */
-const newSection = (children: Paragraph[], first: boolean): ISectionOptions => ({
+const newSection = (children: Paragraph[], kind: 'centered' | 'body', first: boolean): ISectionOptions => ({
   properties: {
     ...(first ? {} : { type: SectionType.NEXT_PAGE }),
-    titlePage: true,
     page: PAGE,
   },
-  footers: { default: numberedFooter(), first: emptyFooter() },
+  footers: { default: kind === 'centered' ? emptyFooter() : numberedFooter() },
   children,
 });
 
-const itemParagraphs = (item: CompileItem, ctx: BodyCtx): Paragraph[] => {
+/** `atSectionStart`: a seção já abre página nova; a quebra do capítulo geraria página em branco. */
+const itemParagraphs = (item: CompileItem, ctx: BodyCtx, atSectionStart: boolean): Paragraph[] => {
   const out: Paragraph[] = [];
+  const brk = !atSectionStart;
   if (item.kind === 'part') {
-    // A quebra de página vem da própria seção.
-    if (item.label) out.push(new Paragraph({ style: STYLE.partLabel, children: [new TextRun(item.label)] }));
-    out.push(new Paragraph({ style: STYLE.partTitle, children: [new TextRun(item.name || item.title)] }));
+    // Bloco que ocupa quase a página toda (corpo longo) começa no alto, sem centralizar.
+    const height = partBlockHeight(item);
+    const before = height < CONTENT_HEIGHT * 0.8 ? centeredBefore(height) : 0;
+    const top = before ? { spacing: { before } } : {};
+    if (item.label) out.push(new Paragraph({ style: STYLE.partLabel, ...top, children: [new TextRun(item.label)] }));
+    out.push(new Paragraph({ style: STYLE.partTitle, ...(item.label ? {} : top), children: [new TextRun(item.name || item.title)] }));
   } else if (item.kind === 'chapter') {
-    out.push(new Paragraph({ style: STYLE.chapter, pageBreakBefore: true, children: [new TextRun(item.title)] }));
+    out.push(new Paragraph({ style: STYLE.chapter, pageBreakBefore: brk, children: [new TextRun(item.title)] }));
   } else if (item.title) {
-    out.push(new Paragraph({ style: STYLE.section, pageBreakBefore: item.startsPage, children: [new TextRun(item.title)] }));
-  } else if (item.startsPage) {
+    out.push(new Paragraph({ style: STYLE.section, pageBreakBefore: item.startsPage && brk, children: [new TextRun(item.title)] }));
+  } else if (item.startsPage && brk) {
     out.push(new Paragraph({ pageBreakBefore: true, children: [] }));
   }
   if (item.epigraph) out.push(...epigraphParagraphs(item.epigraph));
@@ -167,21 +223,41 @@ const itemParagraphs = (item: CompileItem, ctx: BodyCtx): Paragraph[] => {
   return out;
 };
 
-export const buildDocx = (ms: Manuscript): Document => {
-  const ctx: BodyCtx = { listCounter: { n: 0 } };
-  const sections: ISectionOptions[] = [];
-  let current: Paragraph[] = [new Paragraph({ style: STYLE.bookTitle, children: [new TextRun(ms.title)] })];
-  let first = true;
+/**
+ * 'book': recuo de primeira linha de 1,25em e nenhum espaço entre parágrafos
+ * (o primeiro depois de título, cena ou separador usa CorpoPrimeiro, sem recuo).
+ * 'blocks': sem recuo e com espaço depois de cada parágrafo.
+ */
+export type ParagraphStyle = 'book' | 'blocks';
+export interface DocxOptions { paragraphStyle?: ParagraphStyle }
 
+export const buildDocx = (ms: Manuscript, options: DocxOptions = {}): Document => {
+  const book = (options.paragraphStyle ?? 'book') === 'book';
+  const bodyParagraph = book
+    ? { alignment: AlignmentType.JUSTIFIED, indent: { firstLine: BOOK_INDENT }, spacing: { after: 0 } }
+    : { alignment: AlignmentType.JUSTIFIED, indent: { firstLine: 0 }, spacing: { after: 0.6 * BODY_PT * 20 } };
+  const ctx: BodyCtx = { listCounter: { n: 0 } };
+  const sections: ISectionOptions[] = [
+    newSection([new Paragraph({
+      style: STYLE.bookTitle,
+      spacing: { before: centeredBefore(lineTw(30, 1)) },
+      children: [new TextRun(ms.title)],
+    })], 'centered', true),
+  ];
+  let body: Paragraph[] = [];
+  const flush = () => {
+    if (body.length) sections.push(newSection(body, 'body', false));
+    body = [];
+  };
   for (const item of ms.items) {
     if (item.kind === 'part') {
-      sections.push(newSection(current, first));
-      first = false;
-      current = [];
+      flush();
+      sections.push(newSection(itemParagraphs(item, ctx, true), 'centered', false));
+    } else {
+      body.push(...itemParagraphs(item, ctx, body.length === 0));
     }
-    current.push(...itemParagraphs(item, ctx));
   }
-  sections.push(newSection(current, first));
+  flush();
 
   const serif = { font: DOCX_FONT };
   return new Document({
@@ -189,45 +265,47 @@ export const buildDocx = (ms: Manuscript): Document => {
     creator: 'ScribeFlow',
     styles: {
       default: {
-        document: { run: { ...serif, size: BODY_PT * PT }, paragraph: { spacing: { line: 336, before: 0, after: 0 } } },
+        document: { run: { ...serif, size: BODY_PT * PT }, paragraph: { spacing: { line: LINE, before: 0, after: 0 } } },
         heading1: {
+          // Capítulo afundado ~1/3 da página: 3 cm de margem + 6,9 cm antes = 9,9 cm (29,7 / 3).
           run: { ...serif, size: 22 * PT, bold: false, color: '000000' },
-          paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 3 * CM, after: 0.9 * CM }, keepNext: true },
+          paragraph: { alignment: AlignmentType.CENTER, spacing: { before: cm(6.9), after: cm(1.6), line: 240 }, keepNext: true },
         },
         heading2: {
-          run: { ...serif, size: 15 * PT, bold: false, color: '000000' },
-          paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 0.8 * CM, after: 0.4 * CM }, keepNext: true },
+          run: { ...serif, size: 14 * PT, bold: false, color: '000000' },
+          paragraph: { alignment: AlignmentType.CENTER, spacing: { before: cm(0.9), after: cm(0.5) }, keepNext: true },
         },
         heading3: {
           run: { ...serif, size: 13 * PT, bold: true, color: '000000' },
-          paragraph: { spacing: { before: 0.5 * CM, after: 0.2 * CM }, keepNext: true },
+          paragraph: { spacing: { before: cm(0.6), after: cm(0.25) }, keepNext: true },
         },
         heading4: {
           run: { ...serif, size: BODY_PT * PT, bold: false, italics: true, color: '000000' },
-          paragraph: { spacing: { before: 0.4 * CM, after: 0.15 * CM }, keepNext: true },
+          paragraph: { spacing: { before: cm(0.45), after: cm(0.2) }, keepNext: true },
         },
       },
       paragraphStyles: [
-        { id: STYLE.body, name: 'Corpo', basedOn: 'Normal', next: STYLE.body, quickFormat: true, paragraph: { alignment: AlignmentType.JUSTIFIED, indent: { firstLine: 1.25 * CM } } },
+        { id: STYLE.body, name: 'Corpo', basedOn: 'Normal', next: STYLE.body, quickFormat: true, paragraph: bodyParagraph },
         { id: STYLE.bodyFirst, name: 'Corpo (primeiro)', basedOn: STYLE.body, next: STYLE.body, quickFormat: true, paragraph: { indent: { firstLine: 0 } } },
-        { id: STYLE.bookTitle, name: 'Título do livro', basedOn: 'Normal', run: { size: 30 * PT }, paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 8 * CM } } },
-        { id: STYLE.partLabel, name: 'Livro/Parte: rótulo', basedOn: 'Normal', next: STYLE.partTitle, run: { size: 12 * PT, allCaps: true, characterSpacing: 60 }, paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 6.5 * CM, after: 0.3 * CM }, keepNext: true } },
-        { id: STYLE.partTitle, name: 'Livro/Parte: título', basedOn: 'Normal', next: STYLE.epigraph, run: { size: 28 * PT }, paragraph: { alignment: AlignmentType.CENTER, spacing: { after: 1 * CM }, keepNext: true, outlineLevel: 0 } },
-        { id: STYLE.epigraph, name: 'Epígrafe', basedOn: 'Normal', next: STYLE.epigraph, quickFormat: true, run: { italics: true, size: 10.5 * PT }, paragraph: { alignment: AlignmentType.JUSTIFIED, indent: { left: 4 * CM }, spacing: { line: 264 }, keepNext: true, keepLines: true } },
-        { id: STYLE.attribution, name: 'Epígrafe: autor', basedOn: 'Normal', next: STYLE.bodyFirst, run: { size: 10 * PT }, paragraph: { alignment: AlignmentType.RIGHT, indent: { left: 4 * CM }, spacing: { before: 0.15 * CM, after: 0.9 * CM }, keepNext: true } },
-        { id: STYLE.quote, name: 'Citação', basedOn: 'Normal', next: STYLE.body, quickFormat: true, run: { size: 11 * PT }, paragraph: { alignment: AlignmentType.JUSTIFIED, indent: { left: 2 * CM, right: 1 * CM }, spacing: { before: 0.2 * CM, after: 0.2 * CM, line: 276 } } },
-        { id: STYLE.rule, name: 'Separador', basedOn: 'Normal', next: STYLE.bodyFirst, paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 0.3 * CM, after: 0.3 * CM } } },
+        { id: STYLE.bookTitle, name: 'Título do livro', basedOn: 'Normal', run: { size: 30 * PT }, paragraph: { alignment: AlignmentType.CENTER, spacing: { line: 240 } } },
+        { id: STYLE.partLabel, name: 'Livro/Parte: rótulo', basedOn: 'Normal', next: STYLE.partTitle, run: { size: 12 * PT, allCaps: true, characterSpacing: 60 }, paragraph: { alignment: AlignmentType.CENTER, spacing: { after: cm(0.3) }, keepNext: true } },
+        { id: STYLE.partTitle, name: 'Livro/Parte: título', basedOn: 'Normal', next: STYLE.epigraph, run: { size: 28 * PT }, paragraph: { alignment: AlignmentType.CENTER, spacing: { after: cm(1.2), line: 240 }, keepNext: true, outlineLevel: 0 } },
+        // Epígrafe: bloco recuado, alinhado à esquerda (justificar poucas palavras abre buracos), corpo menor.
+        { id: STYLE.epigraph, name: 'Epígrafe', basedOn: 'Normal', next: STYLE.epigraph, quickFormat: true, run: { italics: true, size: 10.5 * PT }, paragraph: { alignment: AlignmentType.LEFT, indent: { left: cm(5) }, spacing: { line: 276 }, keepNext: true, keepLines: true } },
+        { id: STYLE.attribution, name: 'Epígrafe: autor', basedOn: 'Normal', next: STYLE.bodyFirst, run: { size: 10.5 * PT, italics: false, smallCaps: true }, paragraph: { alignment: AlignmentType.RIGHT, indent: { left: cm(5) }, spacing: { before: cm(0.2), after: EPIGRAPH_AFTER }, keepNext: true } },
+        { id: STYLE.quote, name: 'Citação', basedOn: 'Normal', next: STYLE.body, quickFormat: true, run: { size: 11 * PT }, paragraph: { alignment: AlignmentType.JUSTIFIED, indent: { left: cm(1.5), right: cm(1) }, spacing: { before: cm(0.25), after: cm(0.25), line: 288 } } },
+        { id: STYLE.rule, name: 'Separador', basedOn: 'Normal', next: STYLE.bodyFirst, paragraph: { alignment: AlignmentType.CENTER, spacing: { before: cm(0.35), after: cm(0.35) } } },
       ],
     },
     numbering: {
       config: [
         {
           reference: 'sf-marcador',
-          levels: [0, 1, 2].map((level) => ({ level, format: LevelFormat.BULLET, text: level === 1 ? '◦' : '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: (1.25 + level * 0.75) * CM, hanging: 0.5 * CM } } } })),
+          levels: [0, 1, 2].map((level) => ({ level, format: LevelFormat.BULLET, text: level === 1 ? '◦' : '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: cm(0.9 + level * 0.7), hanging: cm(0.45) } } } })),
         },
         {
           reference: 'sf-numero',
-          levels: [0, 1, 2].map((level) => ({ level, format: [LevelFormat.DECIMAL, LevelFormat.LOWER_LETTER, LevelFormat.LOWER_ROMAN][level], text: `%${level + 1}.`, alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: (1.25 + level * 0.75) * CM, hanging: 0.6 * CM } } } })),
+          levels: [0, 1, 2].map((level) => ({ level, format: [LevelFormat.DECIMAL, LevelFormat.LOWER_LETTER, LevelFormat.LOWER_ROMAN][level], text: `%${level + 1}.`, alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: cm(0.9 + level * 0.7), hanging: cm(0.55) } } } })),
         },
       ],
     },
@@ -235,4 +313,29 @@ export const buildDocx = (ms: Manuscript): Document => {
   });
 };
 
-export const renderDocx = (ms: Manuscript): Promise<Blob> => Packer.toBlob(buildDocx(ms));
+/** Declaração da Palatino no fontTable: nome alternativo e panose de romana, para a substituição cair numa serifada parecida. */
+const PALATINO_FONT_XML =
+  `<w:font w:name="${DOCX_FONT}"><w:altName w:val="${DOCX_FONT_ALT}"/><w:panose1 w:val="02040502050505030304"/>` +
+  '<w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font>';
+
+/** Acrescenta a Palatino ao word/fontTable.xml gerado pela lib (que só lista fontes embutidas). */
+export const withFontTable = async (docx: Uint8Array | ArrayBuffer): Promise<JSZip> => {
+  const zip = await JSZip.loadAsync(docx);
+  const path = 'word/fontTable.xml';
+  const xml = await zip.file(path)?.async('string');
+  if (xml && !xml.includes(`w:name="${DOCX_FONT}"`)) {
+    const patched = /<w:fonts[^>]*\/>/.test(xml)
+      ? xml.replace(/<w:fonts([^>]*)\/>/, `<w:fonts$1>${PALATINO_FONT_XML}</w:fonts>`)
+      : xml.replace('</w:fonts>', `${PALATINO_FONT_XML}</w:fonts>`);
+    zip.file(path, patched);
+  }
+  return zip;
+};
+
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+export const renderDocx = async (ms: Manuscript, options: DocxOptions = {}): Promise<Blob> => {
+  const raw = await Packer.toArrayBuffer(buildDocx(ms, options));
+  const zip = await withFontTable(raw);
+  return zip.generateAsync({ type: 'blob', mimeType: DOCX_MIME, compression: 'DEFLATE' });
+};
