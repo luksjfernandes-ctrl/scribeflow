@@ -60,6 +60,7 @@ import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
+import { DocBase, appendLostToNotes, mergeMetadata, resolveConflict } from './lib/conflict';
 import { SaveQueue, SaveStatus, DocFieldUpdates, mergeServerDocs, shouldRefetchOnRealtime } from './lib/persistence';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
@@ -170,20 +171,103 @@ export default function App() {
    *  de gravar, em vez de depender de um efeito colateral dentro do updater. */
   const docsRef = React.useRef<Doc[]>([]);
   docsRef.current = docs;
+  // Documento aberto e editor, lidos pelo fetch do realtime (fora do ciclo de render).
+  const selectedDocIdRef = React.useRef<string | null>(null);
+  selectedDocIdRef.current = selectedDocId;
+  const globalEditorRef = React.useRef<ReturnType<typeof useEditor>>(null);
+  /** Por doc: a versão do banco de onde a aba partiu (ver lib/conflict.ts). */
+  const docBaseRef = React.useRef(new Map<string, DocBase>());
   const [saveQueue] = useState(() => new SaveQueue({
     getDoc: (id) => docsRef.current.find(d => d.id === id),
     write: async (docId, projectId, payload) => {
       // O supabase-js devolve { error } em vez de lancar, e um update barrado
       // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
-      const { data, error } = await supabase
-        .from('docs')
-        .update(payload)
-        .eq('id', docId)
-        .eq('project_id', projectId)
-        .select('id');
+      const update = (body: Record<string, unknown>, expectedAt?: number) => {
+        let q = supabase.from('docs').update(body).eq('id', docId).eq('project_id', projectId);
+        if (expectedAt !== undefined) q = q.eq('updated_at', expectedAt);
+        return q.select('id');
+      };
+      const stamp = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
+
+      let base = docBaseRef.current.get(docId);
+      let body = payload;
+      let merged = false;
+      // Metadata local na hora do envio: diz o que a aba mudou enquanto esperava.
+      const sentMeta = (payload.metadata ?? docsRef.current.find(d => d.id === docId)?.metadata) as DocumentMetadata | undefined;
+
+      const finish = () => {
+        if (base) {
+          docBaseRef.current.set(docId, {
+            updatedAt: typeof body.updated_at === 'number' ? body.updated_at : null,
+            title: typeof body.title === 'string' ? body.title : base.title,
+            content: typeof body.content === 'string' ? body.content : base.content,
+            metadata: (body.metadata as DocumentMetadata | undefined) ?? base.metadata,
+          });
+        }
+        if (merged && body.metadata) {
+          // O estado local recebe o que foi juntado, sem desfazer o que a aba
+          // mudou durante a gravacao (tres vias de novo: base = o que foi enviado).
+          const written = body.metadata as DocumentMetadata;
+          setDocs(curr => curr.map(d => {
+            if (d.id !== docId) return d;
+            const local = mergeMetadata(sentMeta, d.metadata, written);
+            return { ...d, metadata: appendLostToNotes(local.merged, local.lost, stamp()) };
+          }));
+        }
+        return { ok: true };
+      };
+
+      // Corpo, titulo e metadata: grava so se o banco ainda esta na versao de
+      // onde a aba partiu. Se outra aba gravou no meio, junta e tenta de novo.
+      const contested = 'content' in payload || 'metadata' in payload || 'title' in payload;
+      if (contested && base && base.updatedAt !== null) {
+        for (let attempt = 0; attempt < 3 && base.updatedAt !== null; attempt++) {
+          const { data, error } = await update(body, base.updatedAt);
+          if (error) return { ok: false, retry: true, error: error.message };
+          if (data && data.length > 0) return finish();
+
+          const { data: current, error: readError } = await supabase
+            .from('docs')
+            .select('title, content, metadata, updated_at')
+            .eq('id', docId)
+            .eq('project_id', projectId)
+            .maybeSingle();
+          if (readError) return { ok: false, retry: true, error: readError.message };
+          if (!current) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+
+          const r = resolveConflict({
+            base,
+            ours: {
+              title: typeof body.title === 'string' ? body.title : undefined,
+              content: typeof body.content === 'string' ? body.content : undefined,
+              metadata: body.metadata as DocumentMetadata | undefined,
+            },
+            current,
+            snapshotId: crypto.randomUUID(),
+            now: Date.now(),
+            stamp: stamp(),
+          });
+          body = { ...body, metadata: r.metadata };
+          merged = true;
+          if (r.snapshot || r.lost.length) {
+            console.warn(`[Save] conflito no doc ${docId}: versão de outra aba guardada (${r.snapshot ? 'snapshot do corpo' : ''}${r.snapshot && r.lost.length ? ', ' : ''}${r.lost.map(l => l.field).join(', ')}).`);
+          }
+          base = {
+            updatedAt: typeof current.updated_at === 'number' ? current.updated_at : null,
+            title: current.title,
+            content: current.content,
+            metadata: current.metadata || {},
+          };
+        }
+      }
+
+      const { data, error } = await update(body);
       if (error) return { ok: false, retry: true, error: error.message };
       if (!data || data.length === 0) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
-      return { ok: true };
+      // Gravacao sem a disputa (ordem, pasta): a base nao avanca, senao
+      // esconderia uma gravacao da outra aba feita no meio.
+      if (!contested) return { ok: true };
+      return finish();
     },
     onStatus: setSaveStatus,
     onError: (docId, error) => console.error(`[Save] falha ao gravar o doc ${docId}:`, error),
@@ -502,7 +586,36 @@ export default function App() {
       }
 
       // Campo com edicao ainda nao confirmada pelo banco fica com o valor local.
-      setDocs(curr => mergeServerDocs(curr, (data || []) as Doc[], id => saveQueue.dirtyFields(id)));
+      const serverDocs = (data || []) as Doc[];
+      setDocs(curr => mergeServerDocs(curr, serverDocs, id => saveQueue.dirtyFields(id)));
+
+      // Sem edicao local pendente, o banco passa a ser a base da proxima
+      // gravacao condicional. E, se o corpo do documento aberto mudou, o texto
+      // entra no editor (senao a aba parada sobrescreveria o da outra ao voltar
+      // a digitar).
+      for (const d of serverDocs) {
+        const dirty = saveQueue.dirtyFields(d.id);
+        // updated_at e coluna da tabela (o eco do realtime usa), fora do tipo Doc.
+        const serverAt = (d as Doc & { updated_at?: unknown }).updated_at;
+        const known = docBaseRef.current.get(d.id);
+        const newer = typeof serverAt === 'number' && (known?.updatedAt == null || serverAt >= known.updatedAt);
+        if (!dirty.has('content') && !dirty.has('metadata') && !dirty.has('title') && (newer || !known)) {
+          docBaseRef.current.set(d.id, {
+            updatedAt: typeof serverAt === 'number' ? serverAt : null,
+            title: d.title,
+            content: d.content || '',
+            metadata: d.metadata || {},
+          });
+        }
+        if (dirty.has('content')) continue;
+        const ed = globalEditorRef.current;
+        if (d.id === selectedDocIdRef.current && ed && !ed.isDestroyed && seq > 1 && d.content !== ed.getHTML()) {
+          const { from, to } = ed.state.selection;
+          ed.commands.setContent(d.content || '', { emitUpdate: false });
+          const max = ed.state.doc.content.size;
+          ed.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
+        }
+      }
     };
 
     fetchDocs();
@@ -999,6 +1112,8 @@ export default function App() {
       }
     },
   });
+
+  globalEditorRef.current = globalEditor;
 
   // Sync Global Editor with Selected Doc
   useEffect(() => {
