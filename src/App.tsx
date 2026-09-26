@@ -57,7 +57,7 @@ import { TargetsModal } from './components/TargetsModal';
 import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
-import { supabase } from './lib/supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
 import { SaveQueue, SaveStatus, DocFieldUpdates, mergeServerDocs, shouldRefetchOnRealtime } from './lib/persistence';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
@@ -93,15 +93,19 @@ export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  /** Token da sessao em memoria, para o envio sincrono do pagehide. */
+  const accessTokenRef = React.useRef<string | null>(null);
 
   // Supabase Auth Sync
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      accessTokenRef.current = session?.access_token ?? null;
       setUser(session?.user ?? null);
       setIsAuthReady(true);
     });
@@ -172,12 +176,43 @@ export default function App() {
     };
     const flushNow = () => { if (saveQueue.hasUnsaved()) void saveQueue.flush(); };
     const handleVisibility = () => { if (document.visibilityState === 'hidden') flushNow(); };
+    // Na descarga, o fetch do flush acima e abortado pelo navegador. O que ainda
+    // nao foi confirmado vai por fetch com keepalive, que sobrevive a pagina.
+    // O keepalive aceita no maximo 64 KB somados; o que passar disso fica so
+    // com o aviso do beforeunload.
+    const handlePageHide = () => {
+      const token = accessTokenRef.current;
+      if (!saveQueue.hasUnsaved() || !token) return;
+      let budget = 60_000;
+      saveQueue.drainForUnload((docId, projectId, payload) => {
+        const body = JSON.stringify(payload);
+        const size = new TextEncoder().encode(body).length;
+        if (size > budget) return false;
+        try {
+          void fetch(`${supabaseUrl}/rest/v1/docs?id=eq.${encodeURIComponent(docId)}&project_id=eq.${encodeURIComponent(projectId)}`, {
+            method: 'PATCH',
+            keepalive: true,
+            headers: {
+              apikey: supabaseAnonKey,
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=minimal',
+            },
+            body,
+          }).catch(() => {});
+        } catch {
+          return false;
+        }
+        budget -= size;
+        return true;
+      });
+    };
     window.addEventListener('beforeunload', handleBeforeUnload);
-    window.addEventListener('pagehide', flushNow);
+    window.addEventListener('pagehide', handlePageHide);
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.removeEventListener('pagehide', flushNow);
+      window.removeEventListener('pagehide', handlePageHide);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [saveQueue]);

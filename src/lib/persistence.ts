@@ -122,6 +122,27 @@ export class SaveQueue {
     return this.chain;
   }
 
+  /**
+   * Para o `pagehide`: manda por `send` (sincrono, ex.: fetch com keepalive) tudo
+   * o que ainda nao foi confirmado, pendente ou em voo. O fetch normal em voo e
+   * abortado quando a pagina descarrega, entao o flush do beforeunload sozinho
+   * perde a ultima edicao. O estado da fila nao muda: se a pagina sobreviver
+   * (bfcache), o flush normal regrava o mesmo conteudo. Devolve os docs que
+   * `send` aceitou.
+   */
+  drainForUnload(send: (docId: string, projectId: string, payload: Record<string, unknown>) => boolean): string[] {
+    const ids = new Set([...this.inflight.keys(), ...this.pending.keys()]);
+    const sent: string[] = [];
+    ids.forEach((docId) => {
+      const inflight = this.inflight.get(docId);
+      const pending = this.pending.get(docId);
+      const entry = inflight && pending ? mergeEntry(inflight, pending) : (pending || inflight)!;
+      const payload = this.buildPayload(docId, entry, this.nextOwnWrite(docId));
+      if (send(docId, entry.projectId, payload)) sent.push(docId);
+    });
+    return sent;
+  }
+
   /** Ha algo que ainda nao foi confirmado pelo banco? */
   hasUnsaved(): boolean {
     return this.pending.size > 0 || this.inflight.size > 0;
@@ -177,11 +198,15 @@ export class SaveQueue {
     return payload;
   }
 
-  private rememberOwnWrite(docId: string, updatedAt: number) {
+  /** updated_at unico por gravacao: e a "assinatura" que identifica o eco. */
+  private nextOwnWrite(docId: string): number {
     const list = this.ownWrites.get(docId) || [];
+    let updatedAt = this.opts.now();
+    if (list.length && list[list.length - 1] >= updatedAt) updatedAt = list[list.length - 1] + 1;
     list.push(updatedAt);
     if (list.length > OWN_WRITES_KEPT) list.shift();
     this.ownWrites.set(docId, list);
+    return updatedAt;
   }
 
   private async runFlush(): Promise<void> {
@@ -197,13 +222,7 @@ export class SaveQueue {
     let anyFailure = false;
     let anyRetry = false;
     for (const [docId, entry] of batch) {
-      // updated_at unico por gravacao: e a "assinatura" que identifica o eco.
-      let updatedAt = this.opts.now();
-      const previous = this.ownWrites.get(docId);
-      if (previous && previous.length && previous[previous.length - 1] >= updatedAt) {
-        updatedAt = previous[previous.length - 1] + 1;
-      }
-      this.rememberOwnWrite(docId, updatedAt);
+      const updatedAt = this.nextOwnWrite(docId);
 
       let result: WriteResult;
       try {

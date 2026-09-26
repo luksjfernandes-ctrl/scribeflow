@@ -285,3 +285,36 @@ test('fila expõe os campos sujos (pendentes e em voo) para o merge', async () =
   await t.queue.flush()
   assert.equal(t.queue.dirtyFields('a').size, 0)
 })
+
+test('descarga da pagina: o que esta pendente ou em voo sai pelo envio sincrono', async () => {
+  const t = setup({ docs: [doc('a', { metadata: meta({ synopsis: 'sinopse' }) }), doc('b')] })
+  t.queue.enqueue('a', 'p1', { fields: { content: '<p>em voo</p>' } })
+  t.hold()
+  void t.queue.flush() // o fetch normal fica pendurado, como na descarga
+  await Promise.resolve()
+  t.queue.enqueue('a', 'p1', { metadataPatch: { subtitle: 'Epigrafe' } })
+  t.queue.enqueue('b', 'p2', { fields: { title: 'Cap B' } })
+
+  const sent: Call[] = []
+  const ids = t.queue.drainForUnload((docId, projectId, payload) => {
+    sent.push({ docId, projectId, payload })
+    return true
+  })
+
+  assert.deepEqual(ids.sort(), ['a', 'b'])
+  const a = sent.find((c) => c.docId === 'a')!
+  assert.equal(a.projectId, 'p1')
+  assert.equal(a.payload.content, '<p>em voo</p>', 'o que estava em voo nao pode se perder')
+  const m = a.payload.metadata as DocumentMetadata
+  assert.equal(m.subtitle, 'Epigrafe')
+  assert.equal(m.synopsis, 'sinopse')
+  assert.equal(sent.find((c) => c.docId === 'b')!.projectId, 'p2')
+  assert.ok(t.queue.isOwnEcho('a', a.payload.updated_at), 'o eco do envio da descarga tambem e reconhecido')
+  assert.ok(t.queue.hasUnsaved(), 'a fila nao muda: se a pagina sobreviver, o flush normal regrava')
+  t.release()
+})
+
+test('descarga da pagina sem nada pendente nao envia nada', () => {
+  const t = setup()
+  assert.deepEqual(t.queue.drainForUnload(() => true), [])
+})
