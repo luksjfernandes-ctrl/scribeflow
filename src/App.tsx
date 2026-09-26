@@ -46,7 +46,7 @@ import { Doc, Project, ViewMode, DocumentType, DocumentMetadata, Snapshot, Comme
 import { FOLDER_COLORS, ICONS, LABEL_COLORS } from './constants';
 import { Binder } from './components/Binder';
 import { Editor } from './components/Editor';
-import { arrayMove } from '@dnd-kit/sortable';
+import { DropPosition, OrderUpdate, applyOrderUpdates, nextOrder, planDrop } from './lib/binderOrder';
 import { Inspector, InspectorTab } from './components/Inspector';
 import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
@@ -646,7 +646,7 @@ export default function App() {
       content: '',
       type,
       parent_id: final_parent_id,
-      order: docs.filter(d => d.parent_id === final_parent_id).length,
+      order: nextOrder(docs, final_parent_id),
       metadata: {
         status: 'To Do',
         label: 'none',
@@ -863,26 +863,82 @@ export default function App() {
     localStorage.setItem('scribeflow-last-project', id);
   };
 
-  const handleMoveDoc = async (docId: string, newParentId: string) => {
-    const doc = docs.find(d => d.id === docId);
-    if (!doc) return;
-    
-    // Prevenir mover pasta para dentro de si mesma ou de seus filhos
-    if (doc.type === 'folder') {
-      const childIds = getAllChildrenIds(docId, docs);
-      if (childIds.includes(newParentId) || docId === newParentId) return;
-    }
+  // Fila das gravações de ordem: arrastes rápidos gravam na sequência em que
+  // aconteceram, sem uma resposta atrasada sobrescrever um arraste mais novo.
+  const orderSaveQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+  const pendingOrderSavesRef = React.useRef(0);
 
-    const newOrder = docs.filter(d => d.parent_id === newParentId).length;
-    
-    if (user && activeProjectId) {
-      await supabase.from('docs').update({ parent_id: newParentId, order: newOrder }).eq('id', docId);
+  const persistOrderUpdates = (updates: OrderUpdate[]) => {
+    if (!user || !activeProjectId || updates.length === 0) return;
+    const projectId = activeProjectId;
+    pendingOrderSavesRef.current += 1;
+    // Cada linha gravada dispara um evento realtime; sem isto, o primeiro eco
+    // recarregaria a lista com metade das linhas ainda na ordem antiga.
+    isLocalOperationRef.current = true;
+    setSaveStatus('pending');
+
+    orderSaveQueueRef.current = orderSaveQueueRef.current.then(async () => {
+      const results = await Promise.all(updates.map(u =>
+        supabase
+          .from('docs')
+          .update({ parent_id: u.parent_id, order: u.order })
+          .eq('id', u.id)
+          .eq('project_id', projectId)
+      ));
+      const failed = results.find(r => r.error);
+      if (failed) {
+        console.error('[Supabase] Erro ao gravar a ordem do binder:', failed.error);
+        setSaveStatus('error');
+        // Volta para o que o banco tem de fato (parte das linhas pode ter gravado).
+        const { data } = await supabase
+          .from('docs')
+          .select('id, parent_id, order')
+          .eq('project_id', projectId)
+          .in('id', updates.map(u => u.id));
+        if (data) setDocs(curr => applyOrderUpdates(curr, data as OrderUpdate[]));
+      } else {
+        setSaveStatus('saved');
+      }
+    }).finally(() => {
+      pendingOrderSavesRef.current -= 1;
+      setTimeout(() => {
+        if (pendingOrderSavesRef.current === 0) isLocalOperationRef.current = false;
+      }, 2000);
+    });
+  };
+
+  const handleDropDoc = (activeId: string, targetId: string, position: DropPosition) => {
+    const updates = planDrop(docs, activeId, targetId, position);
+    if (!updates || updates.length === 0) return;
+
+    setDocs(curr => applyOrderUpdates(curr, updates));
+    if (position === 'inside') {
+      setExpandedFolders(prev => new Set(prev).add(targetId));
     }
-    
-    setDocs(curr => curr.map(d => d.id === docId 
-      ? { ...d, parent_id: newParentId, order: newOrder } 
-      : d
-    ));
+    persistOrderUpdates(updates);
+  };
+
+  const handleRenameProject = async (id: string, name: string) => {
+    const trimmed = name.trim();
+    try {
+      projectSchema.parse({ title: trimmed });
+    } catch (err: unknown) {
+      alert(err instanceof z.ZodError ? err.issues[0]?.message : 'Erro de validação');
+      return;
+    }
+    const previous = projects.find(p => p.id === id);
+    if (!previous || previous.name === trimmed) return;
+
+    const updated_at = Date.now();
+    setProjects(prev => prev.map(p => (p.id === id ? { ...p, name: trimmed, updated_at } : p)));
+    if (!user) return;
+
+    const { error } = await supabase.from('projects').update({ name: trimmed, updated_at }).eq('id', id);
+    if (error) {
+      console.error('[Supabase] Erro ao renomear o projeto:', error);
+      setProjects(prev => prev.map(p => (p.id === id ? { ...p, name: previous.name, updated_at: previous.updated_at } : p)));
+      alert('Não foi possível renomear o livro: ' + error.message);
+    }
   };
 
   const debouncedSaveDoc = React.useCallback((id: string, updates: any) => {
@@ -1098,32 +1154,6 @@ export default function App() {
     return () => window.removeEventListener('click', closeContextMenu);
   }, []);
 
-  const handleReorderDocs = (activeId: string, overId: string) => {
-    const activeDoc = docs.find(d => d.id === activeId);
-    const overDoc = docs.find(d => d.id === overId);
-
-    if (!activeDoc || !overDoc || activeDoc.parent_id !== overDoc.parent_id) return;
-
-    const sameLevelDocs = docs
-      .filter(d => d.parent_id === activeDoc.parent_id)
-      .sort((a, b) => a.order - b.order);
-
-    const oldIndex = sameLevelDocs.findIndex(d => d.id === activeId);
-    const newIndex = sameLevelDocs.findIndex(d => d.id === overId);
-
-    const reorderedLevel = arrayMove(sameLevelDocs, oldIndex, newIndex);
-
-    const updatedDocs = docs.map(d => {
-      const reorderedIndex = reorderedLevel.findIndex(rd => rd.id === d.id);
-      if (reorderedIndex !== -1) {
-        return { ...d, order: reorderedIndex };
-      }
-      return d;
-    });
-
-    setDocs(updatedDocs);
-  };
-
   // 1. Initial Auth Loading
   if (!isAuthReady) {
     return (
@@ -1338,8 +1368,8 @@ export default function App() {
               onUpdateDoc={handleUpdateDoc}
               onDeleteDoc={handleDeleteDoc}
               onRenameDoc={handleRenameDoc}
-              onReorderDocs={handleReorderDocs}
-              onMoveDoc={handleMoveDoc}
+              onDropDoc={handleDropDoc}
+              onRenameProject={(name) => activeProjectId && handleRenameProject(activeProjectId, name)}
               onToggleFolder={toggleFolder}
               expandedFolders={expandedFolders}
               onContextMenu={handleContextMenu}
@@ -1518,6 +1548,7 @@ export default function App() {
           setIsProjectsModalOpen(false);
         }}
         onDelete={handleDeleteProject}
+        onRename={handleRenameProject}
       />
 
       {/* Context Menu */}
