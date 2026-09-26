@@ -6,6 +6,8 @@ interface MenuItem {
   shortcut?: string;
   onClick?: () => void;
   divider?: boolean;
+  /** Sem efeito no contexto atual: aparece apagado em vez de não fazer nada. */
+  disabled?: boolean;
 }
 
 interface Menu {
@@ -39,10 +41,11 @@ export function MenuBar({ menus }: MenuBarProps) {
                     <div className="dropdown-divider" />
                   ) : (
                     <div 
-                      className="dropdown-item"
+                      className={cn("dropdown-item", item.disabled && "opacity-40 pointer-events-none")}
+                      aria-disabled={item.disabled || undefined}
                       onClick={(e) => {
                         e.stopPropagation();
-                        item.onClick?.();
+                        if (!item.disabled) item.onClick?.();
                       }}
                     >
                       <span>{item.label}</span>

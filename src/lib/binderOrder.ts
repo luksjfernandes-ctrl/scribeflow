@@ -19,9 +19,12 @@ export interface OrderUpdate {
 
 const CONTAINER_TYPES = new Set(['folder', 'research', 'characters', 'places', 'front-matter', 'trash']);
 
-/** Pastas, grupos e pastas estruturais aceitam filhos. */
+/** Livro/Parte: documento de texto com `section_type: 'Part'` (ex.: "Livro I – Infância"). */
+export const isPart = (doc: Doc): boolean => doc.type === 'text' && doc.metadata?.section_type === 'Part';
+
+/** Pastas, grupos, pastas estruturais e Livros/Partes aceitam filhos. */
 export const isContainer = (doc: Doc): boolean =>
-  CONTAINER_TYPES.has(doc.type) || doc.metadata?.folder_role != null;
+  CONTAINER_TYPES.has(doc.type) || doc.metadata?.folder_role != null || isPart(doc);
 
 /**
  * Ordem estável entre irmãos. Com `order` repetido (dado legado), desempata por

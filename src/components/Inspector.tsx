@@ -26,6 +26,7 @@ interface InspectorProps {
   onUpdateComment?: (id: string, text: string) => void;
   onDeleteComment?: (id: string) => void;
   onSelectComment?: (id: string) => void;
+  onTogglePart?: (id: string) => void;
 }
 
 const KEYWORD_PALETTE = ['#E05050', '#E08030', '#D0B020', '#40A040', '#4070D0', '#8040D0', '#0F9B8E'];
@@ -60,6 +61,7 @@ export function Inspector({
   onUpdateComment,
   onDeleteComment,
   onSelectComment,
+  onTogglePart,
 }: InspectorProps) {
   // Local form state for the various "add" inputs
   const [keywordDraft, setKeywordDraft] = useState('');
@@ -231,6 +233,20 @@ export function Inspector({
               </div>
 
               <div className="px-3 pt-4 space-y-3">
+                {doc.type === 'text' && (
+                  <div className="flex items-center gap-2 text-[11px] text-text-secondary">
+                    <input
+                      type="checkbox"
+                      id="is-part"
+                      checked={metadata.section_type === 'Part'}
+                      onChange={() => onTogglePart?.(doc.id)}
+                      className="rounded border-border-color text-accent-color focus:ring-accent-color/20"
+                    />
+                    <label htmlFor="is-part" className="font-medium">
+                      Livro / Parte (página de título)
+                    </label>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 text-[11px] text-text-secondary">
                   <input
                     type="checkbox"

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import type { Doc } from '../src/types.ts'
 import {
   applyOrderUpdates,
+  isContainer,
   getDropPosition,
   getSortedChildren,
   nextOrder,
@@ -162,4 +163,28 @@ test('nextOrder usa máximo + 1 (não colide depois de ir para a lixeira)', () =
   const docs = [doc('a', 'man', 0), doc('c', 'man', 2)]
   assert.equal(nextOrder(docs, 'man'), 3)
   assert.equal(nextOrder(docs, 'vazia'), 0)
+})
+
+// Livro/Parte: texto com section_type 'Part' (contrato comum sf-botoes/sf-editor/sf-exportar).
+const part = (id: string, parent_id: string | null, order: number): Doc =>
+  doc(id, parent_id, order, { metadata: { created_at: 0, section_type: 'Part' } as Doc['metadata'] })
+
+test('Livro/Parte aceita capítulo solto dentro dele e devolve para fora', () => {
+  const docs = [...base(), part('livro1', 'man', 6)]
+  const dentro = drop(docs, 'c3', 'livro1', 'inside')
+  assert.equal(dentro.find(d => d.id === 'c3')!.parent_id, 'livro1')
+  const fora = drop(dentro, 'c3', 'c1', 'after')
+  assert.equal(fora.find(d => d.id === 'c3')!.parent_id, 'man')
+})
+
+test('texto comum continua sem aceitar filhos pelo arraste', () => {
+  const docs = [...base(), part('livro1', 'man', 6)]
+  assert.equal(planDrop(docs, 'c3', 'c2', 'inside'), null)
+  assert.notEqual(planDrop(docs, 'c3', 'livro1', 'inside'), null)
+})
+
+test('soltar sobre Livro/Parte tem zona de "dentro" no meio da linha; texto comum não', () => {
+  const rect = { top: 100, height: 20 }
+  assert.equal(getDropPosition(110, rect, isContainer(part('p', null, 0))), 'inside')
+  assert.equal(getDropPosition(110, rect, isContainer(doc('t', null, 0))), 'after')
 })

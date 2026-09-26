@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { X, BarChart3 } from 'lucide-react';
 import { Doc } from '../types';
+import { withoutTrash } from '../lib/trash';
 
 interface StatisticsModalProps {
   isOpen: boolean;
@@ -50,7 +51,8 @@ const StatRow =({ label, value, total, color }: { label: string; value: number; 
 
 export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps) {
   const stats = useMemo(() => {
-    const textDocs = docs.filter((d) => d.type === 'text' && d.metadata?.folder_role !== 'trash');
+    const live = withoutTrash(docs);
+    const textDocs = live.filter((d) => d.type === 'text');
     let totalWords = 0;
     let totalChars = 0;
     const byStatus: Record<string, number> = {};
@@ -76,7 +78,7 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
       }
     }
 
-    const folders = docs.filter((d) => d.type !== 'text' && d.metadata?.folder_role !== 'trash').length;
+    const folders = live.filter((d) => d.type !== 'text').length;
     const topWords = Object.entries(freq)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 12);

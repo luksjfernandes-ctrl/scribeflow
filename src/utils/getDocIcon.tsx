@@ -16,5 +16,7 @@ export const getDocIcon = (doc: Doc) => {
   
   if (doc.type === 'folder' || doc.type === 'front-matter') return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.folder(color) }} />;
   
+  if (doc.type === 'text' && doc.metadata?.section_type === 'Part') return <div data-part-icon className="w-4 h-4 flex items-center justify-center" title="Livro / Parte" dangerouslySetInnerHTML={{ __html: ICONS.part }} />;
+
   return <div className="w-4 h-4 flex items-center justify-center" dangerouslySetInnerHTML={{ __html: ICONS.textDoc(true) }} />;
 };

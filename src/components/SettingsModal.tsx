@@ -55,15 +55,8 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
             />
           </div>
 
-          <div className="space-y-1.5">
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">PAPER WIDTH (PX)</div>
-            <input 
-              type="number" 
-              className="w-full bg-[#222] border border-[#333] rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#5B7A3D]"
-              value={settings.paper_width}
-              onChange={(e) => onUpdateSettings({ paper_width: parseInt(e.target.value) || 0 })}
-            />
-          </div>
+          {/* PAPER WIDTH escondido: o valor era gravado e o editor nunca o aplicava
+              (largura fixa em Editor.tsx, que é da sf-editor). Volta quando o editor ler paper_width. */}
         </div>
 
         <div className="p-4 bg-[#222] border-t border-[#333] flex justify-end">
