@@ -7,7 +7,7 @@
 import { Block, blockText, Run } from './html';
 import type { CompileItem, Epigraph, Manuscript } from './compile';
 
-const epigraphText = (e: Epigraph): string => [...e.lines, ...(e.attribution ? [`— ${e.attribution}`] : [])].join('\n');
+const epigraphText = (e: Epigraph): string => e.lines.map((l) => l.display).join('\n');
 
 const itemHeading = (item: CompileItem): string => {
   if (item.kind === 'part') return [item.label?.toUpperCase(), item.name || item.title].filter(Boolean).join('\n');
@@ -97,8 +97,10 @@ const rtfBlocks = (blocks: Block[], indentTw = 0): string => {
 };
 
 const rtfEpigraph = (e: Epigraph): string =>
-  e.lines.map((l) => `{\\pard\\qj\\li2268\\i\\fs21 ${rtfEscape(l)}\\par}\n`).join('') +
-  (e.attribution ? `{\\pard\\qr\\li2268\\sa480\\fs20 ${rtfEscape(`— ${e.attribution}`)}\\par}\n` : '{\\pard\\sa480\\par}\n');
+  e.lines.map((l) =>
+    l.kind === 'attribution'
+      ? `{\\pard\\qr\\li2268\\sa120\\scaps\\fs20 ${rtfEscape(l.display)}\\par}\n`
+      : `{\\pard\\ql\\li2268\\i\\fs21 ${rtfEscape(l.display)}\\par}\n`).join('') + '{\\pard\\sa360\\par}\n';
 
 export const renderRtf = (ms: Manuscript): string => {
   let rtf = '{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1{\\fonttbl{\\f0\\froman\\fcharset0 Garamond;}}\n';

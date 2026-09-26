@@ -19,12 +19,12 @@ import type { Doc } from '../types';
 import { compareSiblings, isPart } from '../lib/binderOrder';
 import { withoutTrash } from '../lib/trash';
 import { Block, parseHtml, trimEmptyBlocks } from './html';
+import { parseEpigraph, type EpigraphLine } from '../lib/epigraph';
+import { parsePartTitle } from '../lib/part';
 
+/** Linhas da epígrafe na ordem digitada: citação, linha em branco (estrofe) e atribuição. */
 export interface Epigraph {
-  /** Linhas do texto da epígrafe (sem a atribuição). */
-  lines: string[];
-  /** Atribuição sem o travessão (ex.: "Guimarães Rosa, Grande Sertão"). */
-  attribution?: string;
+  lines: EpigraphLine[];
 }
 
 export type CompileKind = 'part' | 'chapter' | 'section';
@@ -54,42 +54,13 @@ const NON_MANUSCRIPT_ROLES = new Set(['characters', 'places', 'research', 'trash
 
 const isIncluded = (d: Doc): boolean => !!d.metadata?.is_include_in_compile;
 
-/** "Livro I – Infância" → { label: "Livro I", name: "Infância" }. Aceita –, — e -. */
-export const splitPartTitle = (title: string): { label?: string; name: string } => {
-  const m = title.match(/^(.+?)\s+[–—-]\s+(.+)$/);
-  if (!m) return { name: title.trim() };
-  return { label: m[1].trim(), name: m[2].trim() };
-};
-
-const DASH = /^(?:—|–|--|-\s)\s*/;
-/** Termina em ponto final (ou ! ? …), mesmo seguido de aspas ou parênteses. */
-const ENDS_SENTENCE = /[.!?…][\s"'”’»)\]]*$/;
-const MAX_ATTRIBUTION_WORDS = 6;
-
 /**
- * A última linha é atribuição quando começa com travessão, ou quando é curta
- * (até 6 palavras) e não termina em ponto final, como "Platão, A República".
- * Mesma regra do editor (sf-editor); uma linha só é sempre a citação.
+ * Epígrafe (subtítulo) pela regra única do app, a mesma do editor:
+ * src/lib/epigraph.ts. Vazio vira null.
  */
-export const isAttributionLine = (line: string, isLastOfSeveral: boolean): boolean => {
-  if (DASH.test(line)) return true;
-  if (!isLastOfSeveral) return false;
-  const words = line.split(/\s+/).filter(Boolean).length;
-  return words > 0 && words <= MAX_ATTRIBUTION_WORDS && !ENDS_SENTENCE.test(line);
-};
-
-/** Subtítulo em texto puro → epígrafe (citação + atribuição opcional). */
-export const parseEpigraph = (subtitle: string | undefined | null): Epigraph | null => {
-  if (!subtitle) return null;
-  const lines = subtitle.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length === 0) return null;
-  let cut = lines.length;
-  // Várias linhas finais com travessão formam uma atribuição só.
-  while (cut > 1 && DASH.test(lines[cut - 1])) cut--;
-  if (cut === lines.length && lines.length > 1 && isAttributionLine(lines[cut - 1], true)) cut--;
-  if (cut === lines.length) return { lines };
-  const attribution = lines.slice(cut).map((l) => l.replace(DASH, '')).join(' ').trim();
-  return { lines: lines.slice(0, cut), ...(attribution ? { attribution } : {}) };
+export const epigraphOf = (subtitle: string | null | undefined): Epigraph | null => {
+  const lines = parseEpigraph(subtitle);
+  return lines.length ? { lines } : null;
 };
 
 /** Raízes do manuscrito: filhos da pasta Manuscript, ou (projeto antigo sem ela) as raízes que não são estruturais. */
@@ -119,10 +90,15 @@ export const compileManuscript = (allDocs: Doc[], projectTitle: string): Manuscr
       title: d.title?.trim() || '',
       depth,
       startsPage,
-      epigraph: parseEpigraph(d.metadata?.subtitle),
+      epigraph: epigraphOf(d.metadata?.subtitle),
       blocks: d.type === 'text' ? trimEmptyBlocks(parseHtml(d.content)) : [],
     };
-    if (kind === 'part') Object.assign(base, splitPartTitle(base.title));
+    if (kind === 'part') {
+      // Mesma divisão do editor (src/lib/part.ts): "Livro I – Infância" → rótulo + nome.
+      const { label, name } = parsePartTitle(base.title);
+      base.name = name;
+      if (label) base.label = label;
+    }
     return base;
   };
 

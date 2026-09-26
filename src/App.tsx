@@ -246,7 +246,9 @@ export default function App() {
   const handleExport = async (format: string) => {
     // A montagem (árvore do binder, lixeira, compilação) e os formatos ficam em src/export.
     try {
-      await exportManuscript(format as ExportFormat, docs, project?.name);
+      // Mesma opção de Ajustes que o editor usa (Livro, o padrão, ou Blocos).
+      const paragraphStyle = project?.settings?.paragraph_style === 'blocks' ? 'blocks' : 'book';
+      await exportManuscript(format as ExportFormat, docs, project?.name, { paragraphStyle });
     } catch (err) {
       if (err instanceof NothingToExportError) {
         alert("Nenhum documento do Manuscript está marcado para compilar. Marque 'Include in Compile' no Inspector dos documentos que devem sair.");

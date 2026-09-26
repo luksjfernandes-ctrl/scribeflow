@@ -7,7 +7,7 @@ import JSZip from 'jszip'
 import { Packer } from 'docx'
 import type { Doc } from '../src/types.ts'
 import { parseHtml, trimEmptyBlocks } from '../src/export/html.ts'
-import { compileManuscript, parseEpigraph, safeFileName, splitPartTitle } from '../src/export/compile.ts'
+import { compileManuscript, epigraphOf, safeFileName } from '../src/export/compile.ts'
 import { buildPdfDefinition, PDF_FONT, type PdfDefinition } from '../src/export/pdf.ts'
 import { buildDocx, withFontTable } from '../src/export/docx.ts'
 import { renderRtf, renderTxt, rtfEscape } from '../src/export/text.ts'
@@ -54,31 +54,23 @@ test('parseHtml aceita texto solto sem <p> (conteúdo antigo) e HTML vazio', () 
 
 // ---------- epígrafe, Livro/Parte, nome de arquivo ----------
 
-test('parseEpigraph separa a atribuição com travessão', () => {
-  assert.deepEqual(parseEpigraph('Viver é muito perigoso.\n— Guimarães Rosa'), { lines: ['Viver é muito perigoso.'], attribution: 'Guimarães Rosa' })
-  assert.deepEqual(parseEpigraph('Só texto'), { lines: ['Só texto'] })
-  assert.deepEqual(parseEpigraph('a\n-- Autor'), { lines: ['a'], attribution: 'Autor' })
-  assert.equal(parseEpigraph('  \n '), null)
-  assert.equal(parseEpigraph(undefined), null)
+test('a exportação usa a regra única da epígrafe (src/lib/epigraph.ts), a mesma do editor', () => {
+  const kinds = (t: string) => epigraphOf(t)!.lines.map((l) => `${l.kind}:${l.display}`)
+  assert.deepEqual(kinds('Viver é muito perigoso.\n— Guimarães Rosa'), ['quote:Viver é muito perigoso.', 'attribution:— Guimarães Rosa'])
+  // última linha curta sem ponto final, sem travessão: atribuição, com "— " só na saída
+  assert.deepEqual(kinds('Conhece-te a ti mesmo.\nPlatão, A República'), ['quote:Conhece-te a ti mesmo.', 'attribution:— Platão, A República'])
+  assert.deepEqual(kinds('Primeira linha\nNão sou nada.'), ['quote:Primeira linha', 'quote:Não sou nada.'])
+  assert.deepEqual(kinds('Sêneca'), ['quote:Sêneca'])
+  // linha em branco separa estrofes
+  assert.deepEqual(kinds('a\n\nb\n-- Autor'), ['quote:a', 'blank:', 'quote:b', 'attribution:— Autor'])
+  assert.equal(epigraphOf('  \n '), null)
+  assert.equal(epigraphOf(undefined), null)
 })
 
-test('parseEpigraph: última linha curta sem ponto final é a atribuição, mesmo sem travessão', () => {
-  assert.deepEqual(parseEpigraph('Conhece-te a ti mesmo.\nPlatão, A República'), { lines: ['Conhece-te a ti mesmo.'], attribution: 'Platão, A República' })
-  // termina em ponto: é citação
-  assert.deepEqual(parseEpigraph('Primeira linha\nNão sou nada.'), { lines: ['Primeira linha', 'Não sou nada.'] })
-  // mais de 6 palavras: é citação
-  assert.deepEqual(parseEpigraph('Verso um\nsete palavras aqui sem ponto nenhum mesmo'), { lines: ['Verso um', 'sete palavras aqui sem ponto nenhum mesmo'] })
-  // "?" e "…" também fecham frase; aspas depois do ponto também
-  assert.equal(parseEpigraph('a\nQuem sou eu?')?.attribution, undefined)
-  assert.equal(parseEpigraph('a\nE disse “basta.”')?.attribution, undefined)
-  // linha única nunca é atribuição
-  assert.deepEqual(parseEpigraph('Sêneca'), { lines: ['Sêneca'] })
-})
-
-test('splitPartTitle divide rótulo e nome', () => {
-  assert.deepEqual(splitPartTitle('Livro I – Infância'), { label: 'Livro I', name: 'Infância' })
-  assert.deepEqual(splitPartTitle('Livro II - Juventude'), { label: 'Livro II', name: 'Juventude' })
-  assert.deepEqual(splitPartTitle('Epílogo'), { name: 'Epílogo' })
+test('Livro/Parte usa a mesma divisão de título do editor (src/lib/part.ts)', () => {
+  seq = 0
+  const docs = [fold('Manuscript', null, 'manuscript'), mk('Livro I – Infância', 'Manuscript', { meta: { section_type: 'Part' } }), mk('Epílogo', 'Manuscript', { meta: { section_type: 'Part' } }), mk('Jean-Paul - Notas', 'Manuscript', { meta: { section_type: 'Part' } })]
+  assert.deepEqual(compileManuscript(docs, 'x').items.map((i) => [i.label, i.name]), [['Livro I', 'Infância'], [undefined, 'Epílogo'], ['Jean-Paul', 'Notas']])
   assert.equal(safeFileName('Meu Livro: A República!'), 'meu_livro_a_republica')
 })
 
@@ -148,7 +140,7 @@ test('página nova só em capítulo e Livro; cenas seguem no fluxo', () => {
   const livro = ms.items.find((i) => i.kind === 'part')!
   assert.equal(livro.label, 'Livro I')
   assert.equal(livro.name, 'Infância')
-  assert.deepEqual(livro.epigraph, { lines: ['Epígrafe do livro'], attribution: 'Autor' })
+  assert.deepEqual(livro.epigraph!.lines.map((l) => [l.kind, l.display]), [['quote', 'Epígrafe do livro'], ['attribution', '— Autor']])
 })
 
 test('capítulo desmarcado com cenas marcadas: a primeira cena abre a página', () => {

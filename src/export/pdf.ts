@@ -128,12 +128,14 @@ const blocksToNodes = (blocks: Block[], opts: BlockOpts): PdfNode[] => {
  * linha própria, à direita, com "— ", em redondo e versalete (smcp da EB Garamond).
  */
 export const epigraphNode = (e: Epigraph): PdfNode => ({
-  stack: [
-    ...e.lines.map((line) => ({ text: line, italics: true, alignment: 'left' })),
-    ...(e.attribution
-      ? [{ text: `— ${e.attribution}`, italics: false, fontFeatures: ['smcp'], alignment: 'right', margin: [0, 5, 0, 0], fontSize: BODY_SIZE - 1.5 }]
-      : []),
-  ],
+  stack: e.lines.map((line) => {
+    if (line.kind === 'attribution') {
+      return { text: line.display, italics: false, fontFeatures: ['smcp'], alignment: 'right', margin: [0, 5, 0, 0], fontSize: BODY_SIZE - 1.5 };
+    }
+    // Linha em branco separa estrofes.
+    if (line.kind === 'blank') return { text: '\u00A0', fontSize: (BODY_SIZE - 1.5) / 2 };
+    return { text: line.display, italics: true, alignment: 'left' };
+  }),
   fontSize: BODY_SIZE - 1.5,
   lineHeight: 1.25,
   margin: [PAGE.width * 0.25, 0, 0, 30],

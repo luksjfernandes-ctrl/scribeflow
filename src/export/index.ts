@@ -9,8 +9,8 @@ import { renderRtf, renderTxt } from './text';
 export type ExportFormat = 'pdf' | 'docx' | 'rtf' | 'txt' | 'epub';
 
 export interface ExportOptions {
-  /** Estilo de parágrafo do livro. Padrão 'book' (recuo de primeira linha). Quando
-   *  existir a opção de Ajustes "Estilo de parágrafo: Livro / Blocos", passar aqui. */
+  /** Estilo de parágrafo: 'book' (padrão, recuo de primeira linha) ou 'blocks'.
+   *  Vem de `project.settings.paragraph_style`, a opção de Ajustes do editor. */
   paragraphStyle?: 'book' | 'blocks';
 }
 

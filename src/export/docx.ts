@@ -135,16 +135,20 @@ const blocksToParagraphs = (blocks: Block[], ctx: BodyCtx, opts: { style: string
 /** Espaço entre a epígrafe e o corpo. */
 const EPIGRAPH_AFTER = cm(1.1);
 
-const epigraphParagraphs = (e: Epigraph): Paragraph[] => [
-  ...e.lines.map((line, i) =>
-    new Paragraph({
+const epigraphParagraphs = (e: Epigraph): Paragraph[] =>
+  e.lines.map((line, i) => {
+    const last = i === e.lines.length - 1;
+    if (line.kind === 'attribution') {
+      // A atribuição já traz o espaço até o corpo; no meio da epígrafe, não.
+      return new Paragraph({ style: STYLE.attribution, ...(last ? {} : { spacing: { after: 0 } }), children: [new TextRun(line.display)] });
+    }
+    return new Paragraph({
       style: STYLE.epigraph,
-      children: [new TextRun(line)],
-      // Sem atribuição, o espaço até o corpo fica na última linha da citação.
-      ...(!e.attribution && i === e.lines.length - 1 ? { spacing: { after: EPIGRAPH_AFTER } } : {}),
-    })),
-  ...(e.attribution ? [new Paragraph({ style: STYLE.attribution, children: [new TextRun(`— ${e.attribution}`)] })] : []),
-];
+      children: line.kind === 'blank' ? [] : [new TextRun(line.display)],
+      // Termina em citação: o espaço até o corpo fica na última linha.
+      ...(last ? { spacing: { after: EPIGRAPH_AFTER } } : {}),
+    });
+  });
 
 const numberedFooter = () =>
   new Footer({ children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ children: [PageNumber.CURRENT], size: 10 * PT })] })] });
@@ -178,8 +182,9 @@ const partBlockHeight = (item: CompileItem): number => {
   h += wrappedLines(item.name || item.title, 28, width) * lineTw(28, 1) + cm(1.2);
   if (item.epigraph) {
     const epWidth = width - cm(5);
-    for (const line of item.epigraph.lines) h += wrappedLines(line, 10.5, epWidth) * lineTw(10.5, 276 / 240);
-    if (item.epigraph.attribution) h += cm(0.2) + lineTw(10.5);
+    for (const line of item.epigraph.lines) {
+      h += line.kind === 'attribution' ? cm(0.2) + lineTw(10.5) : wrappedLines(line.display || ' ', 10.5, epWidth) * lineTw(10.5, 276 / 240);
+    }
     h += EPIGRAPH_AFTER;
   }
   for (const b of item.blocks) h += wrappedLines(blockText(b), BODY_PT, width) * lineTw(BODY_PT);
