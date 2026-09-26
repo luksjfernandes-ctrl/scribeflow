@@ -17,7 +17,8 @@ import { cn } from '../lib/utils';
 
 import { Doc } from '../types';
 import { parseEpigraph } from '../lib/epigraph';
-import { isPartDoc, parsePartTitle } from '../lib/part';
+import { parsePartTitle } from '../lib/part';
+import { isPart as isPartDoc } from '../lib/binderOrder';
 
 interface EditorProps {
   content: string;
@@ -309,6 +310,12 @@ export function Editor({
   const [partBodyOpen, setPartBodyOpen] = React.useState(false);
   React.useEffect(() => setPartBodyOpen(false), [doc.id]);
   const showBody = !isPart || partBodyOpen;
+  // Conta pelo doc, nao pelo storage do editor: na troca de documento o
+  // setContent roda depois do render e a contagem do editor ainda e a do anterior.
+  const partWords = React.useMemo(
+    () => (isPart ? content.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length : 0),
+    [isPart, content],
+  );
   const focusAtEnd = (el: HTMLTextAreaElement | null) => {
     if (!el) return;
     el.focus();
@@ -428,7 +435,7 @@ export function Editor({
           {isPart && (
             <div className="part-body-toggle">
               <button type="button" onClick={() => setPartBodyOpen((open) => !open)}>
-                {partBodyOpen ? 'Hide text' : wordCount > 0 ? `Show text (${wordCount} words)` : 'Add text to this part'}
+                {partBodyOpen ? 'Hide text' : partWords > 0 ? `Show text (${partWords} ${partWords === 1 ? 'word' : 'words'})` : 'Add text to this part'}
               </button>
             </div>
           )}

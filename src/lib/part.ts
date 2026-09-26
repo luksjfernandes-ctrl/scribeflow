@@ -1,18 +1,10 @@
-import type { Doc } from '../types';
-
 /**
  * Livro/Parte dentro do manuscrito (ex.: "Livro I – Infancia", como na
  * Republica de Platao). Contrato comum das sessoes de 26/09: doc com
  * `type: 'text'` e `metadata.section_type: 'Part'`, sem coluna nova.
  */
 
-export const PART_SECTION_TYPE = 'Part';
-
-/** O Inspector grava section_type como texto livre: aceita "part", " Part ". */
-export function isPartDoc(doc: Pick<Doc, 'type' | 'metadata'> | null | undefined): boolean {
-  if (!doc || doc.type !== 'text') return false;
-  return (doc.metadata?.section_type || '').trim().toLowerCase() === 'part';
-}
+// Quem e Livro/Parte decide `isPart` em ./binderOrder (o mesmo que o Binder usa).
 
 export interface PartTitle {
   /** "Livro I" (vazio se o titulo nao tiver separador). */

@@ -660,8 +660,8 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 560px;
-  padding-top: 3em;
+  min-height: 420px;
+  padding-top: 2em;
 }
 .part-title-wrap {
   position: relative;
