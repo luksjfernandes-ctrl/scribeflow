@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { appendLostToNotes, conflictSnapshot, mergeMetadata, needsConflictSnapshot, resolveConflict } from '../src/lib/conflict.ts'
+import { appendLostToNotes, conflictSnapshot, mergeMetadata, needsConflictSnapshot, resolveConflict, theirsOnly } from '../src/lib/conflict.ts'
 import type { DocumentMetadata } from '../src/types.ts'
 
 const meta = (m: Partial<DocumentMetadata> = {}): DocumentMetadata => ({
@@ -60,15 +60,16 @@ test('metadata: subtitulo, sinopse e notas mudados nas duas -> vence o nosso, o 
   const { merged, lost } = mergeMetadata(base, ours, theirs)
   assert.equal(merged.subtitle, 'S nosso')
   assert.equal(merged.synopsis, 'Y nossa')
+  // guarda so o trecho que so a outra aba tem (o comum ja esta no nosso)
   assert.deepEqual(lost, [
-    { field: 'subtítulo', text: 'S deles' },
-    { field: 'sinopse', text: 'Y deles' },
-    { field: 'notas', text: 'N deles' },
+    { field: 'subtítulo', text: 'deles' },
+    { field: 'sinopse', text: 'deles' },
+    { field: 'notas', text: 'deles' },
   ])
   const final = appendLostToNotes(merged, lost, '26/09 21:03')
   // nenhum texto some: o nosso nos campos, o deles no fim das notas
-  for (const t of ['N nossa', 'S deles', 'Y deles', 'N deles']) assert.ok(final.notes.includes(t), t)
-  assert.ok(final.notes.includes('[Versão de outra aba · subtítulo · 26/09 21:03]'))
+  for (const t of ['N nossa', 'deles']) assert.ok(final.notes.includes(t), t)
+  assert.ok(final.notes.includes('[Trecho de outra aba · subtítulo · 26/09 21:03]'))
 })
 
 test('metadata: campo de escolha (status, rotulo) nas duas -> vence o nosso, sem ir para as notas', () => {
@@ -120,7 +121,7 @@ test('comentarios: mesmo comentario editado nas duas -> vence o nosso, o texto d
   const base = meta({ comments: [com('c0', 'x')] })
   const { merged, lost } = mergeMetadata(base, meta({ comments: [com('c0', 'x nosso')] }), meta({ comments: [com('c0', 'x deles')] }))
   assert.deepEqual(merged.comments.map(c => c.text), ['x nosso'])
-  assert.deepEqual(lost, [{ field: 'comentário', text: 'x deles' }])
+  assert.deepEqual(lost, [{ field: 'comentário', text: 'deles' }])
 })
 
 test('marcadores e palavras-chave: uniao (palavra-chave pela chave de texto)', () => {
@@ -161,8 +162,8 @@ test('resolveConflict: corpo vira snapshot, titulo perdedor e subtitulo perdedor
   assert.equal(r.metadata.snapshots[0].id, 'snap1')
   assert.equal(r.metadata.subtitle, 'S nosso')
   assert.equal(r.metadata.synopsis, 'nova sinopse')
-  assert.ok(r.metadata.notes.includes('S deles'))
-  assert.ok(r.metadata.notes.includes('Cap deles'))
+  assert.ok(r.metadata.notes.includes('[Trecho de outra aba · subtítulo · 26/09 21:03]\ndeles'))
+  assert.ok(r.metadata.notes.includes('[Trecho de outra aba · título · 26/09 21:03]\ndeles'))
 })
 
 test('resolveConflict: so corpo enviado, metadata da outra aba e preservado', () => {
@@ -175,4 +176,21 @@ test('resolveConflict: so corpo enviado, metadata da outra aba e preservado', ()
   assert.equal(r.snapshot, null)
   assert.equal(r.metadata.synopsis, 'sinopse deles')
   assert.deepEqual(r.lost, [])
+})
+
+test('theirsOnly: so o trecho da outra aba, cortado por palavra', () => {
+  assert.equal(theirsOnly('Sub caso SubA-1', 'Sub caso SubB-1'), 'SubB-1')
+  assert.equal(theirsOnly('notas antigas NotaA2', 'notas antigas NotaB2'), 'NotaB2')
+  assert.equal(theirsOnly('começo A fim', 'começo B C fim'), 'B C')
+  // a outra aba so apagou: nada a guardar
+  assert.equal(theirsOnly('um dois tres', 'um tres'), '')
+  assert.equal(theirsOnly('', 'tudo novo'), 'tudo novo')
+  assert.equal(theirsOnly('x', ''), '')
+})
+
+test('notas disputadas repetidas nao duplicam o texto comum', () => {
+  const base = meta({ notes: 'Nota longa com muito texto.' })
+  const { merged, lost } = mergeMetadata(base, meta({ notes: 'Nota longa com muito texto. A' }), meta({ notes: 'Nota longa com muito texto. B' }))
+  const final = appendLostToNotes(merged, lost, 't')
+  assert.equal(final.notes, 'Nota longa com muito texto. A\n\n[Trecho de outra aba · notas · t]\nB')
 })

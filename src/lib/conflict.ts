@@ -56,6 +56,26 @@ const stable = (v: unknown): string =>
   ) ?? 'undefined';
 const same = (a: unknown, b: unknown) => stable(a) === stable(b);
 
+/**
+ * O trecho que só a outra aba tem: tira as palavras iguais do começo e do fim.
+ * O que é comum já está na versão vencedora; guardar o campo inteiro de novo
+ * só duplicaria texto (nas notas, a cada disputa). Vazio = a outra aba só apagou.
+ */
+export const theirsOnly = (ours: string, theirs: string): string => {
+  const o = (ours || '').split(/(\s+)/);
+  const t = (theirs || '').split(/(\s+)/);
+  let i = 0;
+  while (i < o.length && i < t.length && o[i] === t[i]) i++;
+  let j = 0;
+  while (j < o.length - i && j < t.length - i && o[o.length - 1 - j] === t[t.length - 1 - j]) j++;
+  return t.slice(i, t.length - j).join('').trim();
+};
+
+const keep = (lost: LostText[], field: string, ours: unknown, theirs: unknown) => {
+  const text = theirsOnly(typeof ours === 'string' ? ours : '', typeof theirs === 'string' ? theirs : '');
+  if (text) lost.push({ field, text });
+};
+
 /** Campos de texto livre: se as duas abas mudaram, o perdedor vai para as notas. */
 const TEXT_FIELDS: Record<string, string> = { subtitle: 'subtítulo', synopsis: 'sinopse', notes: 'notas' };
 
@@ -97,8 +117,7 @@ const mergeList = (rule: ListRule, base: Item[], ours: Item[], theirs: Item[], l
       const r = pick(bi, oi, ti);
       out.push(r.value as Item);
       if (r.conflict && rule.text) {
-        const theirsText = rule.text(ti);
-        if (theirsText.trim() && theirsText !== rule.text(oi)) lost.push({ field: rule.label, text: theirsText });
+        keep(lost, rule.label, rule.text(oi), rule.text(ti));
       }
     } else if (oi) {
       // A outra aba não tem: ou é novo nosso, ou ela apagou. Apagado e não
@@ -120,7 +139,7 @@ const mergeRecord = (
   const out: Record<string, string> = {};
   for (const k of new Set([...Object.keys(base), ...Object.keys(ours), ...Object.keys(theirs)])) {
     const r = pick(base[k], ours[k], theirs[k]);
-    if (r.conflict && typeof theirs[k] === 'string' && theirs[k].trim()) lost.push({ field: `campo "${k}"`, text: theirs[k] });
+    if (r.conflict) keep(lost, `campo "${k}"`, ours[k], theirs[k]);
     if (r.value !== undefined) out[k] = r.value;
   }
   return out;
@@ -148,19 +167,17 @@ export const mergeMetadata = (
       out[k] = mergeRecord(rec(B[k]), rec(O[k]), rec(T[k]), lost);
     } else {
       const r = pick(B[k], O[k], T[k]);
-      if (r.conflict && TEXT_FIELDS[k] && typeof T[k] === 'string' && (T[k] as string).trim()) {
-        lost.push({ field: TEXT_FIELDS[k], text: T[k] as string });
-      }
+      if (r.conflict && TEXT_FIELDS[k]) keep(lost, TEXT_FIELDS[k], O[k], T[k]);
       if (r.value !== undefined) out[k] = r.value;
     }
   }
   return { merged: out as unknown as DocumentMetadata, lost };
 };
 
-/** Põe o texto perdedor no fim das notas, com rótulo. `stamp` ex.: "26/09 21:03". */
+/** Põe o trecho perdedor no fim das notas, com rótulo. `stamp` ex.: "26/09 21:03". */
 export const appendLostToNotes = (meta: DocumentMetadata, lost: LostText[], stamp: string): DocumentMetadata => {
   if (lost.length === 0) return meta;
-  const blocks = lost.map((l) => `[Versão de outra aba · ${l.field} · ${stamp}]\n${l.text}`);
+  const blocks = lost.map((l) => `[Trecho de outra aba · ${l.field} · ${stamp}]\n${l.text}`);
   const notes = [meta.notes || '', ...blocks].filter((s) => s.trim() !== '').join('\n\n');
   return { ...meta, notes };
 };
@@ -191,13 +208,8 @@ export const resolveConflict = (args: {
     ? mergeMetadata(base.metadata, ours.metadata, current.metadata)
     : { merged: { ...(current.metadata || {}) } as DocumentMetadata, lost: [] as LostText[] };
 
-  if (
-    ours.title !== undefined &&
-    current.title !== base.title &&
-    current.title !== ours.title &&
-    (current.title || '').trim()
-  ) {
-    lost.push({ field: 'título', text: current.title });
+  if (ours.title !== undefined && current.title !== base.title && current.title !== ours.title) {
+    keep(lost, 'título', ours.title, current.title);
   }
 
   let snapshot: Snapshot | null = null;

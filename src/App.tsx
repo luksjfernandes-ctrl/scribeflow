@@ -174,7 +174,7 @@ export default function App() {
         if (expectedAt !== undefined) q = q.eq('updated_at', expectedAt);
         return q.select('id');
       };
-      const stamp = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      const stamp = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
 
       let base = docBaseRef.current.get(docId);
       let body = payload;
