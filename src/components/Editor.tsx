@@ -182,7 +182,8 @@ export function Editor({
   // Set content only when the document changes to prevent bounce-back from autosave
   React.useEffect(() => {
     if (editor) {
-      editor.commands.setContent(content);
+      // Trocar de documento nao e edicao: sem emitUpdate, nao gera gravacao.
+      editor.commands.setContent(content, { emitUpdate: false });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id, editor]);
