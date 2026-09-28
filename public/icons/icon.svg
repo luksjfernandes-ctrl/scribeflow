@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Ícone do ScribeFlow: livro aberto em papel creme sobre verde-oliva, com marcador. -->
+  <rect width="512" height="512" fill="#4F6B33"/>
+  <rect width="512" height="512" fill="url(#g)"/>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6B8A4A" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#3E5528" stop-opacity="0.55"/>
+    </linearGradient>
+  </defs>
+  <!-- páginas -->
+  <path d="M256 170 C 214 140 160 132 104 142 L 104 372 C 160 362 214 370 256 400 Z" fill="#F4EFE4"/>
+  <path d="M256 170 C 298 140 352 132 408 142 L 408 372 C 352 362 298 370 256 400 Z" fill="#EAE3D3"/>
+  <!-- lombada -->
+  <path d="M256 170 L 256 400" stroke="#C9BFA8" stroke-width="4"/>
+  <!-- linhas de texto (grossas, legíveis a 60px) -->
+  <g stroke="#B9AE95" stroke-width="10" stroke-linecap="round">
+    <path d="M142 204 C 178 198 208 202 228 212"/>
+    <path d="M142 246 C 178 240 208 244 228 254"/>
+    <path d="M142 288 C 178 282 208 286 228 296"/>
+    <path d="M284 212 C 304 202 334 198 370 204"/>
+    <path d="M284 254 C 304 244 334 240 370 246"/>
+  </g>
+  <!-- marcador -->
+  <path d="M332 124 L 372 124 L 372 206 L 352 190 L 332 206 Z" fill="#C0392B"/>
+</svg>

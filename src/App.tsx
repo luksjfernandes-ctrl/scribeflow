@@ -70,6 +70,7 @@ import { exportManuscript, ExportFormat, ExportOptions, NothingToExportError } f
 import { LogIn, LogOut, User as UserIcon, X as CloseIcon } from 'lucide-react';
 import { useIsMobile } from './hooks/useIsMobile';
 import { useVisualViewport } from './hooks/useVisualViewport';
+import { SaveIndicator } from './components/SaveIndicator';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
@@ -169,6 +170,13 @@ export default function App() {
   }, [activeProjectId]);
   const isLocalOperationRef = React.useRef<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  // Indicador de salvamento: hora da última confirmação do banco nesta sessão.
+  const prevSaveStatusRef = React.useRef<SaveStatus>('saved');
+  useEffect(() => {
+    if (saveStatus === 'saved' && prevSaveStatusRef.current !== 'saved') setLastSaved(new Date());
+    prevSaveStatusRef.current = saveStatus;
+  }, [saveStatus]);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
   /** Ultimo `docs` renderizado. A fila de salvamento le daqui o metadata na hora
    *  de gravar, em vez de depender de um efeito colateral dentro do updater. */
   const docsRef = React.useRef<Doc[]>([]);
@@ -327,6 +335,21 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [saveQueue]);
+
+  // Sem rede a fila tenta de novo sozinha; ao voltar, envia na hora.
+  useEffect(() => {
+    const goOnline = () => {
+      setIsOnline(true);
+      if (saveQueue.hasUnsaved()) void saveQueue.flush();
+    };
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, [saveQueue]);
   
   // Panel Widths
   const [binderWidth, setBinderWidth] = useState(240);
@@ -393,10 +416,12 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string }>({ ok: true, text: 'Project Saved' });
 
   // ⌘S grava de fato o que estiver na fila e só diz "salvo" se o banco confirmou.
-  const handleSave = async () => {
+  // O botão "Salvar" do editor confirma na própria faixa, sem o aviso flutuante.
+  const handleSave = async (toast = true) => {
     if (saveQueue.hasUnsaved()) await saveQueue.flush();
     const ok = !saveQueue.hasUnsaved();
     if (ok) setLastSaved(new Date());
+    if (!toast) return;
     setSaveMessage(ok ? { ok, text: 'Project Saved' } : { ok, text: 'Não foi possível salvar: veja a conexão' });
     setShowSaveIndicator(true);
     setTimeout(() => setShowSaveIndicator(false), 2000);
@@ -1715,6 +1740,15 @@ export default function App() {
                         suspendEditorContent={composeState !== 'closed'}
                         onConvertToPart={() => handleTogglePart(selectedDoc.id)}
                         isMobile={isMobile}
+                        topBar={user ? (
+                          <SaveIndicator
+                            status={saveStatus}
+                            online={isOnline}
+                            unsaved={saveStatus !== 'saved'}
+                            savedAt={lastSaved ?? (docBaseRef.current.get(selectedDoc.id)?.updatedAt ? new Date(docBaseRef.current.get(selectedDoc.id)!.updatedAt!) : null)}
+                            onSave={() => handleSave(false)}
+                          />
+                        ) : undefined}
                       />
                     )
                   )}
@@ -1865,6 +1899,9 @@ export default function App() {
       />
 
       {/* Context Menu */}
+      {contextMenu && isMobile && (
+        <div className="context-menu-backdrop" onClick={closeContextMenu} aria-hidden="true" />
+      )}
       {contextMenu && (
         <div 
           className="context-menu"

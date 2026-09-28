@@ -1699,3 +1699,112 @@ textarea {
     padding-bottom: 0;
   }
 }
+
+/* Indicador de salvamento no topo do editor (desktop e celular). */
+.save-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px 0 12px;
+  background: #F2F0EB;
+  border-bottom: 1px solid #D5D2CA;
+  font-size: 12px;
+  color: #5A5A5A;
+  flex-shrink: 0;
+}
+.save-indicator-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.save-indicator[data-tone=ok] .save-indicator-status { color: #436127; }
+.save-indicator[data-tone=warn] .save-indicator-status { color: #8A5A00; }
+.save-indicator[data-tone=error] .save-indicator-status { color: #B3261E; }
+.save-indicator-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid #C0BDB5;
+  border-radius: 11px;
+  background: white;
+  color: #2A2A2A;
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.save-indicator-btn:active { background: #E8E5DE; }
+.save-indicator-btn:disabled { opacity: 0.6; }
+@media (max-width: 767px) {
+  .save-indicator {
+    height: 36px;
+    font-size: 13px;
+  }
+  .save-indicator-btn {
+    height: 30px;
+    padding: 0 14px;
+    border-radius: 15px;
+    font-size: 14px;
+  }
+}
+
+/* Binder no toque: o toque longo é do app (menu/arrastar), não do iOS.
+   Só nas linhas do Binder — o editor continua selecionável. */
+.binder-item {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.binder-item.touch-armed {
+  background: rgba(91, 122, 61, 0.22);
+  box-shadow: inset 0 0 0 2px #5B7A3D;
+  transition: background 0.15s;
+}
+.touch-drag-ghost {
+  position: fixed;
+  z-index: 100;
+  display: inline-flex;
+  width: auto;
+  max-width: 240px;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  opacity: 0.92;
+  pointer-events: none;
+}
+.context-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99998;
+  background: rgba(0, 0, 0, 0.3);
+}
+@media (max-width: 767px) {
+  /* Menu de contexto como folha de ações embaixo, com alvos de 44px. */
+  .context-menu {
+    left: 8px !important;
+    right: 8px;
+    top: auto !important;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    max-height: 70%;
+    overflow-y: auto;
+    font-size: 16px;
+    border-radius: 12px;
+  }
+  .context-menu-item {
+    min-height: 44px;
+    padding: 0 16px;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .context-menu-item:hover {
+    background: transparent;
+    color: inherit;
+  }
+  .context-menu-item:active {
+    background: #5B7A3D;
+    color: white;
+  }
+}

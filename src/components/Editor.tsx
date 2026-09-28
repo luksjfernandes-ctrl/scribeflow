@@ -40,6 +40,8 @@ interface EditorProps {
   /** Celular: barra de formatacao embaixo (acima do teclado), sem zoom e com
    *  corpo de pelo menos 16px (abaixo disso o iOS da zoom sozinho ao focar). */
   isMobile?: boolean;
+  /** Faixa fixa acima de tudo (indicador de salvamento). */
+  topBar?: React.ReactNode;
 }
 
 const uid = () => {
@@ -291,6 +293,7 @@ export function Editor({
   suspendEditorContent = false,
   onConvertToPart,
   isMobile = false,
+  topBar,
 }: EditorProps) {
   const editor = externalEditor;
 
@@ -388,6 +391,7 @@ export function Editor({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {topBar}
       {!isMobile && formatBar}
       
       {showPartHint && (
