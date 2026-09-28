@@ -54,6 +54,14 @@ import {
 import { InlineNameInput } from './InlineNameInput';
 import { isInTrash } from '../lib/trash';
 
+const COARSE_POINTER = (() => {
+  try {
+    return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
+})();
+
 // Com o ponteiro em cima de uma linha, ela é o alvo; nos vãos, a mais próxima.
 const binderCollision: CollisionDetection = (args) => {
   const within = pointerWithin(args);
@@ -350,11 +358,13 @@ export const Binder: React.FC<BinderProps> = ({
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
 
   // Distância de ativação: um clique (ou duplo clique para renomear) não vira arraste.
+  // No toque, só um toque longo arrasta: deslizar o dedo rola a lista (antes, 5px
+  // de rolagem já viravam arraste e a lista não rolava no celular).
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
+      activationConstraint: COARSE_POINTER
+        ? { delay: 300, tolerance: 8 }
+        : { distance: 5 },
     }),
     useSensor(KeyboardSensor)
   );

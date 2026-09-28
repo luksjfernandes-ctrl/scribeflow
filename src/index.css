@@ -1506,3 +1506,196 @@ button:focus-visible, select:focus-visible {
 .editor-splitter:hover {
   background: #AAA7A0;
 }
+
+/* ============================================================
+   CELULAR (issue #32): uma coluna por vez, sem zoom automático
+   do iOS e sem o layout pular quando o teclado abre.
+   ============================================================ */
+.app-root {
+  height: 100vh;
+  height: 100dvh;
+}
+
+html, body {
+  overscroll-behavior: none;
+}
+
+/* O texto precisa ser selecionável e editável: user-select:none herdado do
+   body faz o iOS não pôr o cursor no editor. */
+.editor-page,
+.editor-page [contenteditable],
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+@media (max-width: 767px) {
+  /* Raiz presa à área visível (useVisualViewport): com o teclado aberto ela
+     encolhe e acompanha o deslocamento do iOS, e a barra de formatação — a
+     última faixa da coluna — fica logo acima do teclado. */
+  .app-root.is-mobile {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--app-offset-top, 0px);
+    height: var(--app-height, 100dvh);
+  }
+
+  /* Abaixo de 16px o iOS dá zoom sozinho ao focar um campo. O :not(#\#) só
+     ganha especificidade para vencer as classes dos componentes. */
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not(.keep-font):not(#\#),
+  textarea:not(.keep-font):not(#\#),
+  select:not(#\#) {
+    font-size: 16px;
+  }
+
+  .macos-toolbar {
+    height: 48px;
+    padding: 0 6px;
+    padding-left: max(6px, env(safe-area-inset-left));
+    padding-right: max(6px, env(safe-area-inset-right));
+  }
+  .macos-toolbar .macos-btn,
+  .macos-toolbar .toolbar-btn-binder-toggle {
+    width: 38px;
+    height: 38px;
+  }
+  .toolbar-view-btn {
+    width: 36px;
+    height: 32px;
+  }
+
+  .mobile-more-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 71;
+    min-width: 220px;
+    max-width: calc(100vw - 16px);
+    padding: 4px;
+    background: #F2F0EB;
+    border: 1px solid #C0BDB5;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .mobile-more-menu button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 6px;
+    font-size: 15px;
+    color: #2A2A2A;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mobile-more-menu button:active {
+    background: rgba(0, 0, 0, 0.08);
+  }
+
+  /* Binder como gaveta sobre o editor; Inspector como tela própria. */
+  .mobile-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    background: rgba(0, 0, 0, 0.35);
+    border: none;
+  }
+  .mobile-drawer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 61;
+    width: min(85vw, 320px);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+  }
+  .mobile-sheet {
+    position: absolute;
+    inset: 0;
+    z-index: 61;
+    flex-direction: column;
+    background: #E5E1D9;
+  }
+  .mobile-sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 44px;
+    padding: 0 8px 0 16px;
+    border-bottom: 1px solid #C0BDB5;
+    font-size: 15px;
+    font-weight: 600;
+    color: #3A3A3A;
+    flex-shrink: 0;
+  }
+  .mobile-sheet .inspector-container {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    border-left: none;
+  }
+  .binder-item {
+    min-height: 40px;
+  }
+
+  /* Página de escrita ocupa a largura toda (antes: 100px de margem de cada lado). */
+  .editor-writing-area {
+    padding: 0;
+  }
+  .editor-page {
+    min-height: 100%;
+    padding: 24px 18px 48px;
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
+    margin-bottom: 0;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .epigraph-wrap {
+    margin-left: 12%;
+  }
+
+  /* Barra de formatação acima do teclado: rola na horizontal, alvos de toque maiores. */
+  .format-bar.format-bar-mobile {
+    height: 48px;
+    padding: 0 8px;
+    padding-bottom: env(safe-area-inset-bottom);
+    gap: 2px;
+    border-top: 1px solid #C8C5BD;
+    border-bottom: none;
+    flex-shrink: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .format-bar.format-bar-mobile::-webkit-scrollbar {
+    display: none;
+  }
+  .format-bar-mobile .format-btn {
+    width: 40px;
+    height: 38px;
+    flex-shrink: 0;
+  }
+  .format-bar-mobile .format-dropdown {
+    height: 34px;
+    flex-shrink: 0;
+  }
+  /* Rodapé global: sai com o teclado aberto para a barra de formatação encostar nele. */
+  .app-footer {
+    padding-bottom: env(safe-area-inset-bottom);
+    height: auto;
+    min-height: 22px;
+  }
+  :root[data-keyboard=open] .app-footer {
+    display: none;
+  }
+  /* Com o teclado aberto não sobra espaço para a borda segura inferior. */
+  :root[data-keyboard=open] .format-bar.format-bar-mobile {
+    padding-bottom: 0;
+  }
+}
