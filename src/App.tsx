@@ -67,7 +67,10 @@ import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
 import { ExportModal } from './components/ExportModal';
 import { exportManuscript, ExportFormat, ExportOptions, NothingToExportError } from './export';
-import { LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { LogIn, LogOut, User as UserIcon, X as CloseIcon } from 'lucide-react';
+import { useIsMobile } from './hooks/useIsMobile';
+import { useVisualViewport } from './hooks/useVisualViewport';
+import { SaveIndicator } from './components/SaveIndicator';
 import { useStructuralFolders, getStructuralFolder } from './hooks/useStructuralFolders';
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
@@ -167,6 +170,13 @@ export default function App() {
   }, [activeProjectId]);
   const isLocalOperationRef = React.useRef<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  // Indicador de salvamento: hora da última confirmação do banco nesta sessão.
+  const prevSaveStatusRef = React.useRef<SaveStatus>('saved');
+  useEffect(() => {
+    if (saveStatus === 'saved' && prevSaveStatusRef.current !== 'saved') setLastSaved(new Date());
+    prevSaveStatusRef.current = saveStatus;
+  }, [saveStatus]);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
   /** Ultimo `docs` renderizado. A fila de salvamento le daqui o metadata na hora
    *  de gravar, em vez de depender de um efeito colateral dentro do updater. */
   const docsRef = React.useRef<Doc[]>([]);
@@ -325,6 +335,21 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [saveQueue]);
+
+  // Sem rede a fila tenta de novo sozinha; ao voltar, envia na hora.
+  useEffect(() => {
+    const goOnline = () => {
+      setIsOnline(true);
+      if (saveQueue.hasUnsaved()) void saveQueue.flush();
+    };
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, [saveQueue]);
   
   // Panel Widths
   const [binderWidth, setBinderWidth] = useState(240);
@@ -339,6 +364,18 @@ export default function App() {
 
   // Split View State
   const [isSplit, setIsSplit] = useState(false);
+
+  // Celular: uma coluna por vez (Binder vira gaveta, Inspector vira tela própria)
+  // e a raiz acompanha a área visível para o teclado não fazer o layout pular.
+  const isMobile = useIsMobile();
+  useVisualViewport(isMobile);
+  useEffect(() => {
+    if (!isMobile) return;
+    setIsBinderOpen(false);
+    setIsInspectorOpen(false);
+  }, [isMobile]);
+  const showSplit = isSplit && !isMobile;
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -379,10 +416,12 @@ export default function App() {
   const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string }>({ ok: true, text: 'Project Saved' });
 
   // ⌘S grava de fato o que estiver na fila e só diz "salvo" se o banco confirmou.
-  const handleSave = async () => {
+  // O botão "Salvar" do editor confirma na própria faixa, sem o aviso flutuante.
+  const handleSave = async (toast = true) => {
     if (saveQueue.hasUnsaved()) await saveQueue.flush();
     const ok = !saveQueue.hasUnsaved();
     if (ok) setLastSaved(new Date());
+    if (!toast) return;
     setSaveMessage(ok ? { ok, text: 'Project Saved' } : { ok, text: 'Não foi possível salvar: veja a conexão' });
     setShowSaveIndicator(true);
     setTimeout(() => setShowSaveIndicator(false), 2000);
@@ -1414,11 +1453,12 @@ export default function App() {
 
   return (
     <div className={cn(
-      "flex flex-col h-screen bg-surface-background overflow-hidden font-sans text-on-surface select-none",
+      "app-root flex flex-col bg-surface-background overflow-hidden font-sans text-on-surface select-none",
+      isMobile && "is-mobile",
       (project?.settings?.theme || 'traditional') === 'dark' && "dark-theme"
     )}>
-      {/* macOS Menu Bar */}
-      <MenuBar menus={menus} />
+      {/* macOS Menu Bar (abre por hover: no celular fica fora, as ações estão na barra) */}
+      {!isMobile && <MenuBar menus={menus} />}
 
       <AnimatePresence>
         {showSaveIndicator && (
@@ -1438,16 +1478,17 @@ export default function App() {
       <header className="macos-toolbar">
         {/* Binder Toggle */}
         <button 
-          onClick={() => setIsBinderOpen(!isBinderOpen)}
+          onClick={() => { setIsBinderOpen(!isBinderOpen); if (isMobile) setIsInspectorOpen(false); }}
           className={cn("toolbar-btn-binder-toggle", isBinderOpen && "bg-black/10")}
           title="Toggle Binder"
         >
           <Layout size={18} />
         </button>
 
-        <div className="toolbar-sep" />
+        {!isMobile && <div className="toolbar-sep" />}
 
         {/* Navigation History */}
+        {!isMobile && (<>
         <div className="toolbar-nav-group">
           <button 
             onClick={goBack}
@@ -1466,6 +1507,7 @@ export default function App() {
         </div>
 
         <div className="toolbar-sep" />
+        </>)}
 
         {/* View Mode Segmented Control */}
         <div className="toolbar-view-group">
@@ -1499,6 +1541,7 @@ export default function App() {
           </button>
         </div>
 
+        {!isMobile && (<>
         <button 
           onClick={() => setIsSplit(!isSplit)}
           className={cn("macos-btn", isSplit && "bg-black/10")}
@@ -1508,10 +1551,12 @@ export default function App() {
         </button>
 
         <div className="toolbar-sep" />
+        </>)}
 
         <div className="toolbar-spacer" />
 
         {/* Search Field — opens Quick Search (⌘O) */}
+        {isMobile ? null : (
         <div className="relative flex items-center">
           <input
             type="text"
@@ -1523,11 +1568,13 @@ export default function App() {
           />
           <Search size={12} className="absolute left-2 text-[#8A877F]" />
         </div>
+        )}
 
         <div className="toolbar-spacer" />
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1">
+          {!isMobile && (
           <button 
             onClick={openCompose}
             disabled={!canCompose}
@@ -1537,7 +1584,9 @@ export default function App() {
             <PenTool size={14} />
             Compose
           </button>
+          )}
           
+          {!isMobile && (<>
           <button onClick={() => setIsExportOpen(true)} className="macos-btn" title="Export Manuscript">
             <Download size={16} />
           </button>
@@ -1553,18 +1602,56 @@ export default function App() {
           <button onClick={() => setIsSettingsOpen(true)} className="macos-btn" title="Project Settings">
             <Settings size={16} />
           </button>
+          </>)}
 
-          <div className="toolbar-sep" />
+          {!isMobile && <div className="toolbar-sep" />}
 
           <button 
-            onClick={() => setIsInspectorOpen(!isInspectorOpen)}
+            onClick={() => { setIsInspectorOpen(!isInspectorOpen); if (isMobile) setIsBinderOpen(false); }}
             className={cn("macos-btn", isInspectorOpen && "bg-black/10")}
             title="Toggle Inspector"
           >
             <Info size={16} />
           </button>
 
-          {user && (
+          {/* Celular: Busca, Exportar, Ajustes e Conta num menu, para Binder,
+              vistas e Inspector caberem até em 320px. */}
+          {isMobile && (
+            <div className="relative">
+              <button
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                className={cn("macos-btn", isMobileMenuOpen && "bg-black/10")}
+                title="More"
+                aria-label="More"
+                aria-expanded={isMobileMenuOpen}
+              >
+                <MoreHorizontal size={18} />
+              </button>
+              {isMobileMenuOpen && (
+                <>
+                  <button type="button" aria-label="Fechar menu" className="fixed inset-0 z-[70] cursor-default" onClick={() => setIsMobileMenuOpen(false)} />
+                  <div className="mobile-more-menu" role="menu">
+                    <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsQuickSearchOpen(true); }}>
+                      <Search size={16} /> Search Project
+                    </button>
+                    <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsExportOpen(true); }}>
+                      <Download size={16} /> Export Manuscript
+                    </button>
+                    <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsSettingsOpen(true); }}>
+                      <Settings size={16} /> Project Settings
+                    </button>
+                    {user && (
+                      <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); if (window.confirm(`Sair da conta ${user.email}?`)) void handleLogout(); }}>
+                        <LogOut size={16} /> Sair ({user.email})
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {user && !isMobile && (
             <button
               onClick={() => { if (window.confirm(`Sair da conta ${user.email}?`)) void handleLogout(); }}
               className="macos-btn"
@@ -1583,15 +1670,22 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 flex overflow-hidden relative">
         {/* Binder Sidebar */}
+        {isBinderOpen && isMobile && (
+          <button type="button" aria-label="Fechar Binder" className="mobile-backdrop" onClick={() => setIsBinderOpen(false)} />
+        )}
         {isBinderOpen && (
-          <div style={{ width: binderWidth }} className="flex shrink-0">
+          <div style={isMobile ? undefined : { width: binderWidth }} className={cn("flex shrink-0", isMobile && "mobile-drawer")}>
             <Binder 
               docs={docs}
               activeProjectId={activeProjectId}
               projectName={project?.name || 'Projeto sem nome'}
               onOpenProjects={() => setIsProjectsModalOpen(true)}
               selectedDocId={selectedDocId}
-              onSelectDoc={navigateTo}
+              onSelectDoc={(id) => {
+                navigateTo(id);
+                // Celular: escolher um item leva direto a ele (pilha, como no Scrivener).
+                if (isMobile) setIsBinderOpen(false);
+              }}
               onAddDoc={handleAddDoc}
               onAddPart={() => handleAddPart(selectedDocId)}
               onUpdateDoc={handleUpdateDoc}
@@ -1605,10 +1699,12 @@ export default function App() {
               renamingId={renamingId}
               onRenameComplete={() => setRenamingId(null)}
             />
+            {!isMobile && (
             <div 
               onMouseDown={startResizingBinder}
               className="splitter"
             />
+            )}
           </div>
         )}
 
@@ -1618,7 +1714,7 @@ export default function App() {
             {/* Main Pane */}
             <div 
               className="editor-pane"
-              style={{ flex: isSplit ? splitRatio : 1 }}
+              style={{ flex: showSplit ? splitRatio : 1 }}
             >
               {selectedDoc ? (
                 <>
@@ -1643,6 +1739,16 @@ export default function App() {
                         onAddComment={handleAddComment}
                         suspendEditorContent={composeState !== 'closed'}
                         onConvertToPart={() => handleTogglePart(selectedDoc.id)}
+                        isMobile={isMobile}
+                        topBar={user ? (
+                          <SaveIndicator
+                            status={saveStatus}
+                            online={isOnline}
+                            unsaved={saveStatus !== 'saved'}
+                            savedAt={lastSaved ?? (docBaseRef.current.get(selectedDoc.id)?.updatedAt ? new Date(docBaseRef.current.get(selectedDoc.id)!.updatedAt!) : null)}
+                            onSave={() => handleSave(false)}
+                          />
+                        ) : undefined}
                       />
                     )
                   )}
@@ -1675,7 +1781,7 @@ export default function App() {
             </div>
 
             {/* Split Pane (Corkboard by default when split) */}
-            {isSplit && (
+            {showSplit && (
               <>
                 <div 
                   className="editor-splitter" 
@@ -1698,12 +1804,21 @@ export default function App() {
 
         {/* Inspector Sidebar */}
         {isInspectorOpen && (
-          <div style={{ width: inspectorWidth }} className="flex shrink-0">
+          <div style={isMobile ? undefined : { width: inspectorWidth }} className={cn("flex shrink-0", isMobile && "mobile-sheet")}>
             {/* Splitter */}
+            {isMobile ? (
+              <div className="mobile-sheet-header">
+                <span>Inspector</span>
+                <button type="button" className="macos-btn" aria-label="Fechar Inspector" onClick={() => setIsInspectorOpen(false)}>
+                  <CloseIcon size={18} />
+                </button>
+              </div>
+            ) : (
             <div 
               onMouseDown={startResizingInspector}
               className="splitter"
             />
+            )}
             <Inspector
               doc={selectedDoc}
               tab={inspectorTab}
@@ -1784,6 +1899,9 @@ export default function App() {
       />
 
       {/* Context Menu */}
+      {contextMenu && isMobile && (
+        <div className="context-menu-backdrop" onClick={closeContextMenu} aria-hidden="true" />
+      )}
       {contextMenu && (
         <div 
           className="context-menu"
@@ -1876,10 +1994,10 @@ export default function App() {
       )}
 
       {/* Global Footer */}
-      <footer className="h-[22px] bg-gradient-to-b from-[#E0DDD5] to-[#D5D2CA] border-t border-[#B5B2AA] flex items-center justify-between px-3 text-[10px] font-mono tracking-wider text-[#6A6760] uppercase">
+      <footer className="app-footer h-[22px] bg-gradient-to-b from-[#E0DDD5] to-[#D5D2CA] border-t border-[#B5B2AA] flex items-center justify-between px-3 text-[10px] font-mono tracking-wider text-[#6A6760] uppercase">
         <div className="flex items-center">
-          <span className="opacity-70">PROJECT: <span className="font-bold text-[#436127]">{project?.name || 'Loading...'}</span></span>
-          <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3" />
+          <span className="opacity-70 max-md:hidden">PROJECT: <span className="font-bold text-[#436127]">{project?.name || 'Loading...'}</span></span>
+          <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3 max-md:hidden" />
           <button
             className="flex items-center gap-2 hover:text-[#436127] transition-colors"
             title="Open Project Targets"
@@ -1904,15 +2022,15 @@ export default function App() {
               </span>
             )}
             {(project?.settings?.session_target ?? 0) > 0 && (
-              <span className="opacity-70">
+              <span className="opacity-70 max-md:hidden">
                 · SESSION: <span className="font-bold text-[#436127]">{sessionWords.toLocaleString()}/{project!.settings.session_target.toLocaleString()}</span>
               </span>
             )}
           </button>
         </div>
         <div className="flex items-center">
-          <span className="opacity-70">{selectedDoc ? `SELECTED: ${selectedDoc.title}` : 'NO SELECTION'}</span>
-          <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3" />
+          <span className="opacity-70 max-md:hidden">{selectedDoc ? `SELECTED: ${selectedDoc.title}` : 'NO SELECTION'}</span>
+          <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3 max-md:hidden" />
           <div className="flex items-center gap-2">
             <div className={cn(
               "w-[7px] h-[7px] rounded-full shadow-[0_0_4px_currentColor]", 

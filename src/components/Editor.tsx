@@ -37,6 +37,11 @@ interface EditorProps {
   suspendEditorContent?: boolean;
   /** Converte este documento em Livro/Parte (a mesma acao do Binder). */
   onConvertToPart?: () => void;
+  /** Celular: barra de formatacao embaixo (acima do teclado), sem zoom e com
+   *  corpo de pelo menos 16px (abaixo disso o iOS da zoom sozinho ao focar). */
+  isMobile?: boolean;
+  /** Faixa fixa acima de tudo (indicador de salvamento). */
+  topBar?: React.ReactNode;
 }
 
 const uid = () => {
@@ -95,6 +100,7 @@ const FormatBar = ({
   disabled,
   prefs,
   onPrefsChange,
+  compact = false,
 }: {
   editor: TiptapEditor | null;
   onAddComment?: (id: string, quote: string) => void;
@@ -102,6 +108,8 @@ const FormatBar = ({
   disabled: boolean;
   prefs: EditorDisplayPrefs;
   onPrefsChange: (prefs: EditorDisplayPrefs) => void;
+  /** Celular: sem fonte/tamanho de exibicao, botoes maiores, presa acima do teclado. */
+  compact?: boolean;
 }) => {
   // Sem isto a barra so re-renderiza quando o App re-renderiza (ao digitar), e o
   // estado ativo dos botoes fica velho ao mover o cursor ou selecionar texto.
@@ -170,7 +178,7 @@ const FormatBar = ({
 
   return (
     <div
-      className={cn('format-bar', disabled && 'format-bar-disabled')}
+      className={cn('format-bar', compact && 'format-bar-mobile', disabled && 'format-bar-disabled')}
       aria-disabled={disabled}
       title={disabled ? 'Formatting applies to the body text only' : undefined}
     >
@@ -188,6 +196,7 @@ const FormatBar = ({
         <option value="blockquote">Blockquote</option>
       </select>
 
+      {!compact && (<>
       <div className="w-px h-4 bg-[#C8C5BD] mx-1" />
 
       <select
@@ -211,6 +220,7 @@ const FormatBar = ({
       >
         {DISPLAY_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
       </select>
+      </>)}
 
       <div className="w-px h-4 bg-[#C8C5BD] mx-1" />
 
@@ -282,6 +292,8 @@ export function Editor({
   onAddComment,
   suspendEditorContent = false,
   onConvertToPart,
+  isMobile = false,
+  topBar,
 }: EditorProps) {
   const editor = externalEditor;
 
@@ -333,6 +345,9 @@ export function Editor({
   React.useLayoutEffect(() => autosize(subtitleRef.current), [subtitle, editingSubtitle]);
 
   const pageFont = DISPLAY_FONTS[prefs.font] || DISPLAY_FONTS[DEFAULT_PREFS.font];
+  // No celular o zoom da pagina fica em 100% e o corpo em >= 16px.
+  const pageZoom = isMobile ? 100 : zoom;
+  const pageFontSize = isMobile ? Math.max(16, prefs.size) : prefs.size;
 
   // Livro/Parte: pagina de titulo (rotulo + nome + epigrafe), corpo recolhido.
   const isPart = isPartDoc(doc);
@@ -363,15 +378,21 @@ export function Editor({
     el.setSelectionRange(el.value.length, el.value.length);
   };
 
+  const formatBar = (
+    <FormatBar
+      editor={editor}
+      onAddComment={onAddComment}
+      disabled={focusedField !== null || !showBody}
+      prefs={prefs}
+      onPrefsChange={changePrefs}
+      compact={isMobile}
+    />
+  );
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <FormatBar
-        editor={editor}
-        onAddComment={onAddComment}
-        disabled={focusedField !== null || !showBody}
-        prefs={prefs}
-        onPrefsChange={changePrefs}
-      />
+      {topBar}
+      {!isMobile && formatBar}
       
       {showPartHint && (
         <div className="part-hint" role="status">
@@ -388,12 +409,12 @@ export function Editor({
         <div 
           className={cn('editor-page', isPart && 'part-host', isPart && !showBody && 'part-sheet')}
           style={{ 
-            transform: `scale(${zoom / 100})`, 
+            transform: `scale(${pageZoom / 100})`, 
             transformOrigin: 'top center',
             width: '100%',
             maxWidth: `${doc.metadata.section_type === 'Heading' ? 'none' : '800px'}`,
             fontFamily: pageFont,
-            fontSize: `${prefs.size}px`,
+            fontSize: `${pageFontSize}px`,
           }}
         >
           <div className={cn(isPart && 'part-page')}>
@@ -415,8 +436,8 @@ export function Editor({
             }}
             className={
               isPart
-                ? cn('part-title-input', !editingTitle && 'part-title-input-idle')
-                : 'w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2 resize-none overflow-hidden'
+                ? cn('part-title-input keep-font', !editingTitle && 'part-title-input-idle')
+                : 'keep-font w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2 resize-none overflow-hidden'
             }
             placeholder={isPart ? 'Book I – Childhood' : 'Untitled Document'}
           />
@@ -502,7 +523,12 @@ export function Editor({
         </div>
       </div>
 
+      {/* Celular: a barra fica por ultimo na coluna, e a coluna termina onde o
+          teclado comeca (useVisualViewport), entao ela fica logo acima dele. */}
+      {isMobile && formatBar}
+
       {/* Editor Footer */}
+      {!isMobile && (
       <div className="h-6 flex items-center justify-between px-3 bg-[#E2DFD8] border-t border-[#B5B2AA] text-[10px] text-[#5A5A5A] font-sans">
         <div className="flex items-center gap-3">
           <span>{wordCount} words</span>
@@ -521,6 +547,7 @@ export function Editor({
           />
         </div>
       </div>
+      )}
     </div>
   );
 }

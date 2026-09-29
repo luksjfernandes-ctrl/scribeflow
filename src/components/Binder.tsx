@@ -53,6 +53,22 @@ import {
 } from '../lib/binderOrder';
 import { InlineNameInput } from './InlineNameInput';
 import { isInTrash } from '../lib/trash';
+import {
+  GestureState,
+  LONG_PRESS_MS,
+  autoScrollSpeed,
+  idleGesture,
+  onTouchEndAction,
+  onTouchMovePhase,
+} from '../lib/touchGesture';
+
+const COARSE_POINTER = (() => {
+  try {
+    return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  } catch {
+    return false;
+  }
+})();
 
 // Com o ponteiro em cima de uma linha, ela é o alvo; nos vãos, a mais próxima.
 const binderCollision: CollisionDetection = (args) => {
@@ -107,6 +123,10 @@ interface SortableBinderItemProps {
   childrenDocs: Doc[];
   renderChildren: (parent_id: string, depth: number) => React.ReactNode;
   dropPosition: DropPosition | null;
+  /** Toque: o arraste e o menu vêm do gesto do Binder, não do puxador. */
+  touchMode: boolean;
+  /** Item segurado (toque longo) ou sendo arrastado pelo toque. */
+  touchState: 'armed' | 'dragging' | null;
 }
 
 function SortableBinderItem({
@@ -124,14 +144,16 @@ function SortableBinderItem({
   onRenameComplete,
   childrenDocs,
   renderChildren,
-  dropPosition
+  dropPosition,
+  touchMode,
+  touchState
 }: SortableBinderItemProps) {
   // Arrasta pelo puxador; o alvo de soltura é só a linha (sem os filhos),
   // senão uma pasta aberta cobre a área de todos os filhos e "rouba" o drop.
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({ id: doc.id });
   const { setNodeRef: setDropRef } = useDroppable({ id: doc.id });
 
-  const style = { opacity: isDragging ? 0.4 : 1 };
+  const style = { opacity: isDragging || touchState === 'dragging' ? 0.4 : 1 };
 
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(doc.title);
@@ -195,6 +217,7 @@ function SortableBinderItem({
         className={cn(
           "binder-item group relative",
           isSelected && "selected",
+          touchState === 'armed' && "touch-armed",
           dropPosition === 'inside' && "ring-2 ring-inset ring-[#5B7A3D] bg-[#5B7A3D]/15"
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
@@ -214,9 +237,12 @@ function SortableBinderItem({
         )}
         <div
           aria-label={`Arrastar ${doc.title}`}
-          className="w-4 h-4 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity shrink-0 mr-1"
+          className={cn(
+            "w-4 h-4 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-40 hover:!opacity-100 transition-opacity shrink-0 mr-1",
+            touchMode && "hidden"
+          )}
           {...attributes}
-          {...listeners}
+          {...(touchMode ? {} : listeners)}
         >
           <svg width="8" height="12" viewBox="0 0 8 12" fill="currentColor" className="text-gray-400">
             <circle cx="2" cy="2" r="1.2"/>
@@ -350,11 +376,13 @@ export const Binder: React.FC<BinderProps> = ({
   const [dropIndicator, setDropIndicator] = useState<DropIndicator | null>(null);
 
   // Distância de ativação: um clique (ou duplo clique para renomear) não vira arraste.
+  // No toque, só um toque longo arrasta: deslizar o dedo rola a lista (antes, 5px
+  // de rolagem já viravam arraste e a lista não rolava no celular).
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
+      activationConstraint: COARSE_POINTER
+        ? { delay: 300, tolerance: 8 }
+        : { distance: 5 },
     }),
     useSensor(KeyboardSensor)
   );
@@ -457,6 +485,144 @@ export const Binder: React.FC<BinderProps> = ({
 
   const draggingDoc = draggingId ? docs.find(d => d.id === draggingId) : null;
 
+  // ---- Toque (celular/tablet): toque longo parado = menu; toque longo + mover = arrastar.
+  const [touchItem, setTouchItem] = useState<{ id: string; state: 'armed' | 'dragging' } | null>(null);
+  const [touchGhost, setTouchGhost] = useState<{ x: number; y: number } | null>(null);
+  const lastTouchGestureAt = useRef(0);
+
+  // No Android o toque longo também dispara o contextmenu nativo; o menu já
+  // veio do gesto, então esse é ignorado.
+  const handleRowContextMenu = (e: React.MouseEvent, id: string) => {
+    if (Date.now() - lastTouchGestureAt.current < 1000) {
+      e.preventDefault();
+      return;
+    }
+    onContextMenu(e, id);
+  };
+
+  // Os listeners nativos ficam presos uma vez; leem o estado atual por aqui.
+  const latest = useRef({ computeIndicator, onDropDoc, onContextMenu });
+  latest.current = { computeIndicator, onDropDoc, onContextMenu };
+
+  useEffect(() => {
+    if (!COARSE_POINTER) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    let g: GestureState & { id: string | null } = { ...idleGesture, id: null };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let frame = 0;
+    let indicator: DropIndicator | null = null;
+    let last = { x: 0, y: 0 };
+
+    const clearTimer = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const reset = () => {
+      clearTimer();
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      g = { ...idleGesture, id: null };
+      indicator = null;
+      pointerRef.current = null;
+      setTouchItem(null);
+      setTouchGhost(null);
+      setDraggingId(null);
+      setDropIndicator(null);
+    };
+    const updateDrag = () => {
+      if (!g.id) return;
+      pointerRef.current = { x: last.x, y: last.y };
+      const next = latest.current.computeIndicator(g.id, null);
+      indicator = next;
+      setDropIndicator(curr => (curr?.overId === next?.overId && curr?.position === next?.position ? curr : next));
+    };
+    // Rolagem da gaveta enquanto o dedo está perto da borda de cima ou de baixo.
+    const tick = () => {
+      frame = 0;
+      if (g.phase !== 'dragging') return;
+      const rect = container.getBoundingClientRect();
+      const speed = autoScrollSpeed(last.y, rect.top, rect.bottom);
+      if (speed) {
+        container.scrollTop += speed;
+        updateDrag();
+      }
+      frame = requestAnimationFrame(tick);
+    };
+
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { reset(); return; }
+      const target = e.target as HTMLElement;
+      if (target.closest('input, textarea, button')) return;
+      const row = target.closest('[data-binder-id]') as HTMLElement | null;
+      if (!row) return;
+      const t = e.touches[0];
+      clearTimer();
+      last = { x: t.clientX, y: t.clientY };
+      g = { phase: 'pressing', startX: t.clientX, startY: t.clientY, id: row.dataset.binderId ?? null };
+      timer = setTimeout(() => {
+        timer = null;
+        if (g.phase !== 'pressing' || !g.id) return;
+        g = { ...g, phase: 'armed' };
+        setTouchItem({ id: g.id, state: 'armed' });
+        try { navigator.vibrate?.(12); } catch { /* sem vibração */ }
+      }, LONG_PRESS_MS);
+    };
+
+    const onMove = (e: TouchEvent) => {
+      if (g.phase === 'idle' || !g.id) return;
+      const t = e.touches[0];
+      if (!t) return;
+      last = { x: t.clientX, y: t.clientY };
+      const phase = onTouchMovePhase(g, t.clientX, t.clientY);
+      if (phase === 'idle') { clearTimer(); g = { ...idleGesture, id: null }; return; }
+      if (g.phase === 'armed' || g.phase === 'dragging') e.preventDefault(); // segurou: a lista não rola
+      if (phase === 'dragging') {
+        if (g.phase !== 'dragging') {
+          setTouchItem({ id: g.id, state: 'dragging' });
+          setDraggingId(g.id);
+        }
+        g = { ...g, phase };
+        setTouchGhost({ x: t.clientX, y: t.clientY });
+        updateDrag();
+        if (!frame) frame = requestAnimationFrame(tick);
+      }
+    };
+
+    const onEnd = (e: TouchEvent) => {
+      const action = onTouchEndAction(g);
+      const id = g.id;
+      const drop = indicator;
+      if (action !== 'none') {
+        // Sem o clique sintético: ele abriria o item e fecharia a gaveta.
+        if (e.cancelable) e.preventDefault();
+        lastTouchGestureAt.current = Date.now();
+      }
+      reset();
+      if (!id) return;
+      if (action === 'menu') {
+        latest.current.onContextMenu(
+          { clientX: last.x, clientY: last.y, preventDefault: () => {} } as unknown as React.MouseEvent,
+          id,
+        );
+      } else if (action === 'drop' && drop) {
+        latest.current.onDropDoc(id, drop.overId, drop.position);
+      }
+    };
+
+    container.addEventListener('touchstart', onStart, { passive: true });
+    container.addEventListener('touchmove', onMove, { passive: false });
+    container.addEventListener('touchend', onEnd, { passive: false });
+    container.addEventListener('touchcancel', reset);
+    return () => {
+      container.removeEventListener('touchstart', onStart);
+      container.removeEventListener('touchmove', onMove);
+      container.removeEventListener('touchend', onEnd);
+      container.removeEventListener('touchcancel', reset);
+      clearTimer();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const touchDoc = touchItem?.state === 'dragging' ? docs.find(d => d.id === touchItem.id) : null;
+
   // Flat full-text results — shown while a search is active so matches inside
   // collapsed folders surface too (the tree only renders expanded branches).
   const renderSearchResults = () => {
@@ -511,12 +677,14 @@ export const Binder: React.FC<BinderProps> = ({
               onAdd={onAddDoc}
               onDelete={onDeleteDoc}
               onRename={onRenameDoc}
-              onContextMenu={onContextMenu}
+              onContextMenu={handleRowContextMenu}
               isRenaming={renamingId === doc.id}
               onRenameComplete={onRenameComplete}
               childrenDocs={docs.filter(d => d.parent_id === doc.id)}
               renderChildren={renderChildren}
               dropPosition={dropIndicator?.overId === doc.id ? dropIndicator.position : null}
+              touchMode={COARSE_POINTER}
+              touchState={touchItem?.id === doc.id ? touchItem.state : null}
             />
           );
         })}
@@ -645,6 +813,16 @@ export const Binder: React.FC<BinderProps> = ({
               ) : null}
             </DragOverlay>
           </DndContext>
+        )}
+        {touchDoc && touchGhost && (
+          <div
+            className="touch-drag-ghost binder-item selected"
+            style={{ left: touchGhost.x + 12, top: touchGhost.y - 44 }}
+            aria-hidden="true"
+          >
+            <div className="mr-1.5 text-[#5A5A5A] flex items-center shrink-0">{getDocIcon(touchDoc)}</div>
+            <span className="flex-1 truncate text-[13px] tracking-tight">{touchDoc.title}</span>
+          </div>
         )}
       </div>
 
