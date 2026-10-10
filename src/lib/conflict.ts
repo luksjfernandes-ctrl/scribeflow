@@ -44,11 +44,28 @@ export const conflictSnapshot = (title: string, content: string, id: string, now
   content,
 });
 
-const CONFLICT_SUFFIX = ' (versão de outra aba)';
+/** Sufixos que o app poe no titulo de snapshots automaticos. */
+const SNAPSHOT_SUFFIXES = [' (versão de outra aba)', ' (antes de restaurar)', ' (não salvo ao fechar)'];
+
+/** Titulo sem os sufixos de snapshot automatico (inclusive empilhados). */
+export const plainTitle = (title: string): string => {
+  let t = title;
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const suf of SNAPSHOT_SUFFIXES) {
+      if (t.endsWith(suf)) {
+        t = t.slice(0, -suf.length);
+        changed = true;
+      }
+    }
+  }
+  return t;
+};
 
 /**
  * Restaurar um snapshot sem perder o texto atual: o atual vira um snapshot
- * antes, e o titulo volta sem o sufixo que o snapshot de conflito carrega.
+ * antes (se ainda nao houver um com o mesmo texto, para ir e voltar entre
+ * versoes nao encher o metadata), e o titulo volta sem sufixo automatico.
  */
 export const restorePlan = (
   current: { title: string; content: string; snapshots: Snapshot[] },
@@ -56,10 +73,21 @@ export const restorePlan = (
   backupId: string,
   now: number,
 ): { title: string; content: string; snapshots: Snapshot[] } => {
-  const backup: Snapshot = { id: backupId, timestamp: now, title: `${current.title || 'Untitled'} (antes de restaurar)`, content: current.content };
-  const title = snapshot.title.endsWith(CONFLICT_SUFFIX) ? snapshot.title.slice(0, -CONFLICT_SUFFIX.length) : snapshot.title;
-  return { title: title || current.title, content: snapshot.content, snapshots: [backup, ...current.snapshots] };
+  const base = plainTitle(current.title) || 'Untitled';
+  const alreadySaved = current.snapshots.some((s) => s.content === current.content);
+  const snapshots = alreadySaved
+    ? current.snapshots
+    : [{ id: backupId, timestamp: now, title: `${base} (antes de restaurar)`, content: current.content }, ...current.snapshots];
+  return { title: plainTitle(snapshot.title) || base, content: snapshot.content, snapshots };
 };
+
+/** Base da gravacao condicional a partir de uma linha do banco. */
+export const baseFromRow = (row: { title?: string | null; content?: string | null; metadata?: unknown; updated_at?: unknown }): DocBase => ({
+  updatedAt: typeof row.updated_at === 'number' ? row.updated_at : null,
+  title: row.title ?? '',
+  content: row.content ?? '',
+  metadata: (row.metadata ?? {}) as Partial<DocumentMetadata>,
+});
 
 /** Igualdade estrutural que não depende da ordem das chaves (o jsonb reordena). */
 const stable = (v: unknown): string =>

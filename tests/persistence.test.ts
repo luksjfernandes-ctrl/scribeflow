@@ -2,10 +2,11 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   SaveQueue,
-  isStaleServerRow,
+  isContestedPayload,
   mergeServerDocs,
   shouldRefetchOnRealtime,
   unloadVersionFilter,
+  writtenDuringFetch,
   type SaveStatus,
   type WriteResult,
 } from '../src/lib/persistence.ts'
@@ -361,17 +362,45 @@ test('descarga da pagina sem nada pendente nao envia nada', () => {
   assert.deepEqual(t.queue.drainForUnload(() => true), [])
 })
 
-test('refetch velho: linha lida antes da propria gravacao nao volta o doc', () => {
-  // A aba gravou C2 (updated_at 2000); o SELECT do refetch tinha lido C1 (1000).
-  assert.equal(isStaleServerRow(1000, 2000), true)
-  assert.equal(isStaleServerRow(2000, 2000), false)
-  assert.equal(isStaleServerRow(3000, 2000), false, 'versao mais nova de outra aba entra')
-  assert.equal(isStaleServerRow(1000, null), false, 'sem base conhecida, o banco manda')
+test('refetch: so o doc gravado durante o SELECT fica com o valor local (sem relogio)', () => {
+  // Contador local: o refetch comecou no 5; o doc a foi confirmado no 6 (durante), b no 3 (antes).
+  assert.equal(writtenDuringFetch(6, 5), true)
+  assert.equal(writtenDuringFetch(3, 5), false)
+  assert.equal(writtenDuringFetch(undefined, 5), false, 'doc que esta aba nao gravou: o banco manda')
   const local = [doc('a', { content: '<p>C2</p>' }), doc('b', { content: '<p>B local</p>' })]
   const server = [doc('a', { content: '<p>C1</p>' }), doc('b', { content: '<p>B banco</p>' })]
   const merged = mergeServerDocs(local, server, () => new Set(), (id) => id === 'a')
   assert.equal(merged[0].content, '<p>C2</p>')
   assert.equal(merged[1].content, '<p>B banco</p>')
+})
+
+test('campos disputados: corpo, titulo e metadata; ordem e pasta nao', () => {
+  assert.equal(isContestedPayload({ content: 'x', updated_at: 1 }), true)
+  assert.equal(isContestedPayload({ metadata: {}, updated_at: 1 }), true)
+  assert.equal(isContestedPayload({ order: 2, parent_id: 'p', updated_at: 1 }), false)
+})
+
+test('troca de conta: takeAll esvazia a fila (inclusive o guardado) e devolve o que seria gravado', async () => {
+  const t = setup({ results: [{ ok: false, hold: true, error: 'scribeflow_sessao_perdida' }] })
+  t.queue.enqueue('a', 'p1', { fields: { content: '<p>guardado</p>' } })
+  await t.queue.flush()
+  t.queue.enqueue('b', 'p2', { fields: { title: 'B' } })
+  const out = t.queue.takeAll()
+  assert.deepEqual(out.map((e) => [e.docId, e.projectId]), [['a', 'p1'], ['b', 'p2']])
+  assert.equal(out[0].payload.content, '<p>guardado</p>')
+  assert.equal(t.queue.hasUnsaved(), false)
+  assert.equal(t.queue.heldError(), null)
+  assert.equal(t.queue.status(), 'saved')
+  assert.equal(t.timers.filter(Boolean).length, 0)
+})
+
+test('flush sem pendencia limpa o erro de gravacao ja descartada (⌘S nao fica preso)', async () => {
+  const t = setup({ results: [{ ok: false, retry: false, error: '0 linhas' }] })
+  t.queue.enqueue('a', 'p1', { fields: { title: 'T' } })
+  await t.queue.flush()
+  assert.equal(t.queue.status(), 'error')
+  await t.queue.flush()
+  assert.equal(t.queue.status(), 'saved')
 })
 
 test('descarga da pagina: o PATCH so grava numa versao desta aba', () => {

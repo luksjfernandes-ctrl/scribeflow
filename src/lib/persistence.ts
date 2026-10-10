@@ -158,6 +158,26 @@ export class SaveQueue {
     return sent;
   }
 
+  /**
+   * Tira da fila tudo o que esta pendente (inclusive o guardado) e devolve o que
+   * seria gravado. Para a troca de conta: a edicao vira rascunho no navegador
+   * (lib/drafts.ts) em vez de ser enviada com a sessao de outra pessoa ou
+   * descartada. O que esta em voo termina sozinho.
+   */
+  takeAll(): Array<{ docId: string; projectId: string; payload: Record<string, unknown> }> {
+    this.cancelTimer();
+    const out = [...this.pending].map(([docId, entry]) => ({
+      docId,
+      projectId: entry.projectId,
+      payload: this.buildPayload(docId, entry, this.opts.now()),
+    }));
+    this.pending.clear();
+    this.held.clear();
+    this.failed = false;
+    this.emit();
+    return out;
+  }
+
   /** Ha algo que ainda nao foi confirmado pelo banco? */
   hasUnsaved(): boolean {
     return this.pending.size > 0 || this.inflight.size > 0;
@@ -232,6 +252,9 @@ export class SaveQueue {
   private async runFlush(includeHeld: boolean): Promise<void> {
     const batch = new Map([...this.pending].filter(([id]) => includeHeld || !this.held.has(id)));
     if (batch.size === 0) {
+      // Nada a gravar e nada guardado: uma gravacao descartada antes (doc apagado)
+      // nao deixa o ⌘S preso em "erro" para sempre.
+      if (this.pending.size === 0 && this.held.size === 0 && this.inflight.size === 0) this.failed = false;
       this.emit();
       return;
     }
@@ -331,13 +354,18 @@ export function shouldRefetchOnRealtime(
 }
 
 /**
- * A linha que o banco devolveu e mais velha que a ultima gravacao que esta aba
- * ja viu confirmada? Acontece quando o SELECT de um refetch e lido antes do
- * proprio UPDATE e a resposta chega depois dele: aplicar essa resposta apagaria
- * do editor o que acabou de ser gravado.
+ * Esta aba confirmou uma gravacao deste doc DEPOIS de o refetch comecar? Entao
+ * o SELECT pode ter lido a versao anterior a ela, e aplicar a resposta apagaria
+ * do editor o que acabou de ser gravado. Compara contadores locais (ordem de
+ * eventos nesta aba), nunca relogios de abas ou aparelhos diferentes.
  */
-export function isStaleServerRow(serverAt: unknown, confirmedAt: number | null | undefined): boolean {
-  return typeof serverAt === 'number' && typeof confirmedAt === 'number' && serverAt < confirmedAt;
+export function writtenDuringFetch(docConfirmSeq: number | undefined, fetchStartSeq: number): boolean {
+  return typeof docConfirmSeq === 'number' && docConfirmSeq > fetchStartSeq;
+}
+
+/** Corpo, titulo ou metadata: os campos que duas abas disputam (gravacao condicional). */
+export function isContestedPayload(payload: Record<string, unknown>): boolean {
+  return 'content' in payload || 'metadata' in payload || 'title' in payload;
 }
 
 /**
