@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { appendLostToNotes, conflictSnapshot, mergeMetadata, needsConflictSnapshot, resolveConflict, theirsOnly } from '../src/lib/conflict.ts'
+import { appendLostToNotes, conflictSnapshot, mergeMetadata, needsConflictSnapshot, resolveConflict, restorePlan, theirsOnly } from '../src/lib/conflict.ts'
 import type { DocumentMetadata } from '../src/types.ts'
 
 const meta = (m: Partial<DocumentMetadata> = {}): DocumentMetadata => ({
@@ -193,4 +193,16 @@ test('notas disputadas repetidas nao duplicam o texto comum', () => {
   const { merged, lost } = mergeMetadata(base, meta({ notes: 'Nota longa com muito texto. A' }), meta({ notes: 'Nota longa com muito texto. B' }))
   const final = appendLostToNotes(merged, lost, 't')
   assert.equal(final.notes, 'Nota longa com muito texto. A\n\n[Trecho de outra aba · notas · t]\nB')
+})
+
+test('restaurar snapshot guarda o texto atual antes e tira o sufixo de conflito', () => {
+  const antigo = { id: 's1', timestamp: 1, title: 'Capítulo 3 (versão de outra aba)', content: '<p>versão B</p>' }
+  const plan = restorePlan({ title: 'Capítulo 3', content: '<p>texto atual</p>', snapshots: [antigo] }, antigo, 'bk', 99)
+  assert.equal(plan.title, 'Capítulo 3')
+  assert.equal(plan.content, '<p>versão B</p>')
+  assert.equal(plan.snapshots.length, 2)
+  assert.deepEqual(plan.snapshots[0], { id: 'bk', timestamp: 99, title: 'Capítulo 3 (antes de restaurar)', content: '<p>texto atual</p>' })
+  // Snapshot comum mantem o proprio titulo.
+  const comum = restorePlan({ title: 'Novo', content: '', snapshots: [] }, { id: 's2', timestamp: 2, title: 'Velho', content: 'x' }, 'bk2', 3)
+  assert.equal(comum.title, 'Velho')
 })

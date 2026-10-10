@@ -168,6 +168,11 @@ export class SaveQueue {
     return new Set([...entryFieldNames(this.inflight.get(docId)), ...entryFieldNames(this.pending.get(docId))]);
   }
 
+  /** Os `updated_at` que esta aba gravou neste doc (os ultimos 20). */
+  ownWriteStamps(docId: string): number[] {
+    return [...(this.ownWrites.get(docId) || [])];
+  }
+
   /** O evento do realtime e o eco de uma gravacao desta propria aba? */
   isOwnEcho(docId: string, updatedAt: unknown): boolean {
     if (typeof updatedAt !== 'number') return false;
@@ -291,11 +296,14 @@ export function mergeServerDocs(
   local: Doc[],
   server: Doc[],
   dirtyFields: (docId: string) => Set<string>,
+  isStale: (docId: string) => boolean = () => false,
 ): Doc[] {
   const localById = new Map(local.map((d) => [d.id, d]));
   return server.map((serverDoc) => {
     const localDoc = localById.get(serverDoc.id);
     if (!localDoc) return serverDoc;
+    // Linha lida antes da propria gravacao confirmada: o local e mais novo.
+    if (isStale(serverDoc.id)) return localDoc;
     const dirty = dirtyFields(serverDoc.id);
     if (dirty.size === 0) return serverDoc;
     const merged: Record<string, unknown> = { ...serverDoc };
@@ -320,4 +328,26 @@ export function shouldRefetchOnRealtime(
     return !isOwnEcho(payload.new.id, payload.new.updated_at);
   }
   return true;
+}
+
+/**
+ * A linha que o banco devolveu e mais velha que a ultima gravacao que esta aba
+ * ja viu confirmada? Acontece quando o SELECT de um refetch e lido antes do
+ * proprio UPDATE e a resposta chega depois dele: aplicar essa resposta apagaria
+ * do editor o que acabou de ser gravado.
+ */
+export function isStaleServerRow(serverAt: unknown, confirmedAt: number | null | undefined): boolean {
+  return typeof serverAt === 'number' && typeof confirmedAt === 'number' && serverAt < confirmedAt;
+}
+
+/**
+ * Filtro de versao para a gravacao da descarga da pagina (PATCH com keepalive):
+ * so grava se o banco ainda esta na base desta aba ou numa versao que ela mesma
+ * gravou. Se outra aba gravou no meio, o PATCH casa 0 linhas e nao apaga o
+ * texto dela (o beforeunload ja avisou que havia alteracao pendente).
+ * Sem nenhuma versao conhecida, devolve null (grava sem condicao, como antes).
+ */
+export function unloadVersionFilter(baseAt: number | null | undefined, ownStamps: number[]): string | null {
+  const versions = [...new Set([...(typeof baseAt === 'number' ? [baseAt] : []), ...ownStamps])];
+  return versions.length ? `in.(${versions.join(',')})` : null;
 }

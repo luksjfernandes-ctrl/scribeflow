@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
-import { LIMITS, isLimitError, limitMessage, refusedMessage } from '../src/lib/limits.ts'
+import { LIMITS, SESSION_LOST, isLimitError, limitMessage, refusedMessage } from '../src/lib/limits.ts'
 
 test('check de tamanho do doc vira mensagem em portugues', () => {
   const m = limitMessage('new row for relation "docs" violates check constraint "docs_content_tamanho"')
@@ -48,4 +48,8 @@ test('os numeros de LIMITS batem com o supabase_schema.sql', () => {
   assert.match(sql, new RegExp(`> ${LIMITS.userTotalMB * 1e6}`))
   assert.match(sql, new RegExp(`quantos > ${LIMITS.docsPerUser}`))
   assert.match(sql, new RegExp(`>= ${LIMITS.projectsPerUser} THEN`))
+})
+
+test('sessao perdida tem mensagem propria', () => {
+  assert.match(refusedMessage(SESSION_LOST), /sessão caiu/)
 })

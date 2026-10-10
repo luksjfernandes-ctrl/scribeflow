@@ -2,8 +2,10 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   SaveQueue,
+  isStaleServerRow,
   mergeServerDocs,
   shouldRefetchOnRealtime,
+  unloadVersionFilter,
   type SaveStatus,
   type WriteResult,
 } from '../src/lib/persistence.ts'
@@ -357,4 +359,35 @@ test('descarga da pagina: o que esta pendente ou em voo sai pelo envio sincrono'
 test('descarga da pagina sem nada pendente nao envia nada', () => {
   const t = setup()
   assert.deepEqual(t.queue.drainForUnload(() => true), [])
+})
+
+test('refetch velho: linha lida antes da propria gravacao nao volta o doc', () => {
+  // A aba gravou C2 (updated_at 2000); o SELECT do refetch tinha lido C1 (1000).
+  assert.equal(isStaleServerRow(1000, 2000), true)
+  assert.equal(isStaleServerRow(2000, 2000), false)
+  assert.equal(isStaleServerRow(3000, 2000), false, 'versao mais nova de outra aba entra')
+  assert.equal(isStaleServerRow(1000, null), false, 'sem base conhecida, o banco manda')
+  const local = [doc('a', { content: '<p>C2</p>' }), doc('b', { content: '<p>B local</p>' })]
+  const server = [doc('a', { content: '<p>C1</p>' }), doc('b', { content: '<p>B banco</p>' })]
+  const merged = mergeServerDocs(local, server, () => new Set(), (id) => id === 'a')
+  assert.equal(merged[0].content, '<p>C2</p>')
+  assert.equal(merged[1].content, '<p>B banco</p>')
+})
+
+test('descarga da pagina: o PATCH so grava numa versao desta aba', () => {
+  assert.equal(unloadVersionFilter(1000, [1500, 1600]), 'in.(1000,1500,1600)')
+  assert.equal(unloadVersionFilter(null, [1500]), 'in.(1500)')
+  assert.equal(unloadVersionFilter(1000, [1000]), 'in.(1000)')
+  assert.equal(unloadVersionFilter(undefined, []), null)
+})
+
+test('a fila expoe os updated_at que a aba gravou em cada doc', async () => {
+  const t = setup()
+  t.queue.enqueue('a', 'p1', { fields: { title: 'T1' } })
+  await t.queue.flush()
+  t.tick(5)
+  t.queue.enqueue('a', 'p1', { fields: { title: 'T2' } })
+  await t.queue.flush()
+  assert.deepEqual(t.queue.ownWriteStamps('a'), [1000, 1005])
+  assert.deepEqual(t.queue.ownWriteStamps('b'), [])
 })

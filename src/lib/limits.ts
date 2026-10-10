@@ -51,6 +51,12 @@ export const limitMessage = (error: string | null | undefined): string | null =>
   return null;
 };
 
-/** Texto para um doc que o banco recusou: o do limite, ou um generico. */
-export const refusedMessage = (error: string | null | undefined): string =>
-  limitMessage(error) ?? 'Não salvou: o banco recusou a última alteração.';
+/** Erro guardado na fila quando a gravacao casou 0 linhas por falta de sessao
+ *  (saiu da conta em outra aba, token expirou): a edicao espera o login. */
+export const SESSION_LOST = 'scribeflow_sessao_perdida';
+
+/** Texto para um doc que o banco recusou: o do limite, o da sessao, ou um generico. */
+export const refusedMessage = (error: string | null | undefined): string => {
+  if (error === SESSION_LOST) return 'Não salvou: a sessão caiu. Entre de novo e aperte ⌘S.';
+  return limitMessage(error) ?? 'Não salvou: o banco recusou a última alteração.';
+};

@@ -44,6 +44,23 @@ export const conflictSnapshot = (title: string, content: string, id: string, now
   content,
 });
 
+const CONFLICT_SUFFIX = ' (versão de outra aba)';
+
+/**
+ * Restaurar um snapshot sem perder o texto atual: o atual vira um snapshot
+ * antes, e o titulo volta sem o sufixo que o snapshot de conflito carrega.
+ */
+export const restorePlan = (
+  current: { title: string; content: string; snapshots: Snapshot[] },
+  snapshot: Snapshot,
+  backupId: string,
+  now: number,
+): { title: string; content: string; snapshots: Snapshot[] } => {
+  const backup: Snapshot = { id: backupId, timestamp: now, title: `${current.title || 'Untitled'} (antes de restaurar)`, content: current.content };
+  const title = snapshot.title.endsWith(CONFLICT_SUFFIX) ? snapshot.title.slice(0, -CONFLICT_SUFFIX.length) : snapshot.title;
+  return { title: title || current.title, content: snapshot.content, snapshots: [backup, ...current.snapshots] };
+};
+
 /** Igualdade estrutural que não depende da ordem das chaves (o jsonb reordena). */
 const stable = (v: unknown): string =>
   JSON.stringify(v, (_k, val) =>

@@ -60,8 +60,8 @@ import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
-import { DocBase, appendLostToNotes, mergeMetadata, resolveConflict } from './lib/conflict';
-import { SaveQueue, SaveStatus, DocFieldUpdates, mergeServerDocs, shouldRefetchOnRealtime } from './lib/persistence';
+import { DocBase, appendLostToNotes, mergeMetadata, resolveConflict, restorePlan } from './lib/conflict';
+import { SaveQueue, SaveStatus, DocFieldUpdates, isStaleServerRow, mergeServerDocs, shouldRefetchOnRealtime, unloadVersionFilter } from './lib/persistence';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
@@ -75,7 +75,7 @@ import { useStructuralFolders, getStructuralFolder } from './hooks/useStructural
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
 import { isRecoveryUrl } from './lib/password';
-import { isLimitError, limitMessage, refusedMessage } from './lib/limits';
+import { SESSION_LOST, isLimitError, limitMessage, refusedMessage } from './lib/limits';
 
 /** Lido no carregamento, antes de o supabase-js consumir o hash do link de recuperação. */
 const OPENED_FROM_RECOVERY_LINK = typeof window !== 'undefined' && isRecoveryUrl(window.location.hash);
@@ -188,6 +188,20 @@ export default function App() {
   const globalEditorRef = React.useRef<ReturnType<typeof useEditor>>(null);
   /** Por doc: a versão do banco de onde a aba partiu (ver lib/conflict.ts). */
   const docBaseRef = React.useRef(new Map<string, DocBase>());
+  /** Doc criado nesta aba: sem base, as gravacoes dele eram UPDATE sem condicao
+   *  e sobrescreviam outra aba sem snapshot. A linha devolvida pelo insert vira
+   *  a base da primeira gravacao condicional. */
+  const rememberBases = (rows: Array<Partial<Doc> & { id: string; updated_at?: unknown }>) => {
+    rows.forEach((row) => {
+      if (typeof row.updated_at !== 'number') return;
+      docBaseRef.current.set(row.id, {
+        updatedAt: row.updated_at,
+        title: row.title ?? '',
+        content: row.content ?? '',
+        metadata: (row.metadata ?? {}) as DocumentMetadata,
+      });
+    });
+  };
   const [saveQueue] = useState(() => new SaveQueue({
     getDoc: (id) => docsRef.current.find(d => d.id === id),
     write: async (docId, projectId, payload) => {
@@ -202,6 +216,15 @@ export default function App() {
       // cada 5 s, porque a mesma gravacao seria recusada de novo.
       const failure = (error: { code?: string; message: string }) =>
         isLimitError(error) ? { ok: false, hold: true, error: error.message } : { ok: false, retry: true, error: error.message };
+      // 0 linhas: doc apagado (descarta) OU sessao perdida, em que a RLS tambem
+      // devolve 0 linhas sem erro (saiu da conta em outra aba, token expirou).
+      // Sem sessao a edicao fica guardada para depois do login, nao vai fora.
+      const zeroRows = async () => {
+        const { data: auth } = await supabase.auth.getSession();
+        return auth.session
+          ? { ok: false, retry: false, error: 'nenhuma linha atualizada' }
+          : { ok: false, hold: true, error: SESSION_LOST };
+      };
       const stamp = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
 
       let base = docBaseRef.current.get(docId);
@@ -248,7 +271,7 @@ export default function App() {
             .eq('project_id', projectId)
             .maybeSingle();
           if (readError) return { ok: false, retry: true, error: readError.message };
-          if (!current) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+          if (!current) return zeroRows();
 
           const r = resolveConflict({
             base,
@@ -278,7 +301,7 @@ export default function App() {
 
       const { data, error } = await update(body);
       if (error) return failure(error);
-      if (!data || data.length === 0) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
+      if (!data || data.length === 0) return zeroRows();
       // Gravacao sem a disputa (ordem, pasta): a base nao avanca, senao
       // esconderia uma gravacao da outra aba feita no meio.
       if (!contested) return { ok: true };
@@ -312,8 +335,13 @@ export default function App() {
         const body = JSON.stringify(payload);
         const size = new TextEncoder().encode(body).length;
         if (size > budget) return false;
+        // Corpo, titulo ou metadata: so grava se o banco ainda esta numa versao
+        // desta aba. Sem isso, fechar a aba sobrescrevia o que outra aba gravou.
+        const contested = 'content' in payload || 'metadata' in payload || 'title' in payload;
+        const version = contested ? unloadVersionFilter(docBaseRef.current.get(docId)?.updatedAt, saveQueue.ownWriteStamps(docId)) : null;
+        const versionQuery = version ? `&updated_at=${encodeURIComponent(version)}` : '';
         try {
-          void fetch(`${supabaseUrl}/rest/v1/docs?id=eq.${encodeURIComponent(docId)}&project_id=eq.${encodeURIComponent(projectId)}`, {
+          void fetch(`${supabaseUrl}/rest/v1/docs?id=eq.${encodeURIComponent(docId)}&project_id=eq.${encodeURIComponent(projectId)}${versionQuery}`, {
             method: 'PATCH',
             keepalive: true,
             headers: {
@@ -407,6 +435,8 @@ export default function App() {
     try {
       // Sem sessao, o RLS barraria o que ainda estiver na fila.
       if (saveQueue.hasUnsaved()) await saveQueue.flush();
+      // O flush falhou (ex.: sem rede): sair agora jogaria a edicao fora.
+      if (saveQueue.hasUnsaved() && !window.confirm('Há alterações que ainda não foram salvas (sem conexão?). Se sair agora, elas se perdem. Sair mesmo assim?')) return;
       await supabase.auth.signOut();
       setUser(null);
       setProjects([]);
@@ -424,7 +454,9 @@ export default function App() {
   // O botão "Salvar" do editor confirma na própria faixa, sem o aviso flutuante.
   const handleSave = async (toast = true) => {
     if (saveQueue.hasUnsaved()) await saveQueue.flush();
-    const ok = !saveQueue.hasUnsaved();
+    // status, nao hasUnsaved: gravacao descartada (retry:false) sai da fila e
+    // nao pode virar "Project Saved".
+    const ok = saveQueue.status() === 'saved';
     if (ok) setLastSaved(new Date());
     if (!toast) return;
     const refused = saveQueue.heldError();
@@ -579,6 +611,7 @@ export default function App() {
           if (docsError) {
             console.error('AUTO-INIT TEMPLATE ERROR:', docsError);
           } else if (createdDocs) {
+            rememberBases(createdDocs as Doc[]);
             setDocs(createdDocs as Doc[]);
           }
           
@@ -632,13 +665,19 @@ export default function App() {
 
       // Campo com edicao ainda nao confirmada pelo banco fica com o valor local.
       const serverDocs = (data || []) as Doc[];
-      setDocs(curr => mergeServerDocs(curr, serverDocs, id => saveQueue.dirtyFields(id)));
+      // Linha mais velha que a ultima gravacao desta aba (o SELECT foi lido antes
+      // do proprio UPDATE): nem o estado nem o editor voltam para ela.
+      const stale = new Set(serverDocs
+        .filter(d => isStaleServerRow((d as Doc & { updated_at?: unknown }).updated_at, docBaseRef.current.get(d.id)?.updatedAt))
+        .map(d => d.id));
+      setDocs(curr => mergeServerDocs(curr, serverDocs, id => saveQueue.dirtyFields(id), id => stale.has(id)));
 
       // Sem edicao local pendente, o banco passa a ser a base da proxima
       // gravacao condicional. E, se o corpo do documento aberto mudou, o texto
       // entra no editor (senao a aba parada sobrescreveria o da outra ao voltar
       // a digitar).
       for (const d of serverDocs) {
+        if (stale.has(d.id)) continue;
         const dirty = saveQueue.dirtyFields(d.id);
         // updated_at e coluna da tabela (o eco do realtime usa), fora do tipo Doc.
         const serverAt = (d as Doc & { updated_at?: unknown }).updated_at;
@@ -825,8 +864,9 @@ export default function App() {
       let inserted = false;
       try {
         const docWithProjectId = { ...newDoc, project_id: activeProjectId };
-        const { error } = await supabase.from('docs').insert(docWithProjectId);
+        const { data: insertedRows, error } = await supabase.from('docs').insert(docWithProjectId).select('id, title, content, metadata, updated_at');
         if (error) throw error;
+        rememberBases((insertedRows || []) as Doc[]);
         const withNew = [...docs, docWithProjectId as Doc];
         const reorder = siblingOf ? planDrop(withNew, newId, siblingOf.id, 'after') : null;
         setDocs(curr => {
@@ -891,9 +931,15 @@ export default function App() {
         const idsToDelete = [id, ...getAllChildrenIds(id, docs)];
         if (user && activeProjectId) {
           isLocalOperationRef.current = true;
-          try {
-            await supabase.from('docs').delete().in('id', idsToDelete);
-          } catch(e) { console.error('Delete error', e); }
+          // O supabase-js devolve { error } em vez de lancar: sem checar, o item
+          // sumia da tela mesmo com o DELETE recusado e voltava ao recarregar.
+          const { error } = await supabase.from('docs').delete().in('id', idsToDelete);
+          if (error) {
+            console.error('Delete error', error);
+            setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
+            alert('Não foi possível excluir agora (veja a conexão). Nada foi apagado.');
+            return;
+          }
         }
         setDocs(curr => curr.filter(d => !idsToDelete.includes(d.id)));
         setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
@@ -949,9 +995,12 @@ export default function App() {
       });
       
       if (user && activeProjectId && idsToDelete.length > 0) {
-        try {
-          await supabase.from('docs').delete().in('id', idsToDelete);
-        } catch(e) { console.error('Empty trash error', e); }
+        const { error } = await supabase.from('docs').delete().in('id', idsToDelete);
+        if (error) {
+          console.error('Empty trash error', error);
+          alert('Não foi possível esvaziar a lixeira agora (veja a conexão). Nada foi apagado.');
+          return;
+        }
       }
       setDocs(curr => curr.filter(d => !idsToDelete.includes(d.id)));
       if (idsToDelete.includes(selectedDocId || '')) setSelectedDocId(null);
@@ -1014,6 +1063,7 @@ export default function App() {
           console.error('TEMPLATE INSERT ERROR:', docsError);
           alert('Erro ao criar estrutura do projeto: ' + docsError.message);
         } else if (createdDocs) {
+          rememberBases(createdDocs as Doc[]);
           setDocs(createdDocs as Doc[]);
         }
         
@@ -1323,12 +1373,27 @@ export default function App() {
 
   const handleRestoreSnapshot = (snapshot: Snapshot) => {
     if (!selectedDoc) return;
+    const quando = new Date(snapshot.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    if (!window.confirm(`Restaurar a versão de ${quando}? O texto atual fica guardado como snapshot antes.`)) return;
+    // O texto atual vira snapshot ANTES de ser trocado (antes nao ficava em
+    // lugar nenhum), e o titulo volta sem o sufixo do snapshot de conflito.
+    const plan = restorePlan(
+      {
+        title: selectedDoc.title,
+        content: globalEditor && !globalEditor.isDestroyed ? globalEditor.getHTML() : selectedDoc.content,
+        snapshots: selectedDoc.metadata?.snapshots || [],
+      },
+      snapshot,
+      crypto.randomUUID(),
+      Date.now(),
+    );
+    handleUpdateMetadata(selectedDoc.id, { snapshots: plan.snapshots });
     // Push the snapshot content straight into the live editor; the sync effect
     // only runs on doc.id changes, so restoring the same doc needs this.
     if (globalEditor) {
-      globalEditor.commands.setContent(snapshot.content);
+      globalEditor.commands.setContent(plan.content);
     }
-    handleUpdateDoc(selectedDoc.id, { title: snapshot.title, content: snapshot.content });
+    handleUpdateDoc(selectedDoc.id, { title: plan.title, content: plan.content });
   };
 
   const handleAddComment = (id: string, quote: string) => {
@@ -1994,20 +2059,10 @@ export default function App() {
                           const targetDoc = docs.find(d => d.id === targetId);
                           if (!targetDoc) return;
                           
-                          const newMetadata = { ...targetDoc.metadata, folder_color, updated_at: Date.now() };
-                          
-                          if (user && activeProjectId) {
-                            const { error } = await supabase.from('docs').update({ metadata: newMetadata }).eq('id', targetId);
-                            if (error) {
-                              // Sem isso a cor ficava na tela e sumia no proximo recarregamento.
-                              console.error('[Supabase] Erro ao gravar a cor da pasta:', error.message);
-                              alert(isLimitError(error) ? refusedMessage(error.message) : 'Não foi possível salvar a cor.');
-                              setContextMenu(null);
-                              return;
-                            }
-                          }
-                          
-                          setDocs(curr => curr.map(d => d.id === targetId ? { ...d, metadata: newMetadata } : d));
+                          // Pela fila, como o resto do metadata: grava so o campo da cor,
+                          // com a gravacao condicional e a juncao entre abas. Direto no
+                          // banco, o metadata inteiro do render apagava notas de outra aba.
+                          handleUpdateMetadata(targetId, { folder_color });
                           setContextMenu(null);
                         })();
                     }}
