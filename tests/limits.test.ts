@@ -15,7 +15,7 @@ test('cota da conta, de docs e de livros sao reconhecidas', () => {
 })
 
 test('metadata, titulo e ajustes tem mensagem propria', () => {
-  assert.ok(limitMessage('violates check constraint "docs_metadata_tamanho"')?.includes('snapshots'))
+  assert.ok(limitMessage('violates check constraint "docs_metadata_tamanho"')?.includes('Apague versões antigas'))
   assert.equal(limitMessage('violates check constraint "projects_name_tamanho"'), 'O título passou do tamanho máximo.')
   assert.ok(limitMessage('violates check constraint "projects_settings_tamanho"'))
 })

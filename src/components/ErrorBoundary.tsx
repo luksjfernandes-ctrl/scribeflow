@@ -25,7 +25,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
-      let errorMessage = 'An unexpected error occurred.';
+      let errorMessage = 'Aconteceu um erro inesperado.';
       
       try {
         // Check if the error is a FirestoreErrorInfo JSON string
@@ -41,13 +41,13 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-screen flex items-center justify-center bg-[#f5f5f0] p-4">
           <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full border border-[#d1d1ca]">
-            <h2 className="text-2xl font-serif font-bold text-red-600 mb-4">Something went wrong</h2>
+            <h2 className="text-2xl font-serif font-bold text-red-600 mb-4">Algo deu errado</h2>
             <p className="text-gray-600 mb-6">{errorMessage}</p>
             <button
               onClick={() => window.location.reload()}
               className="w-full py-2 bg-[#5a5a40] text-white rounded font-medium hover:bg-[#4a4a30] transition-colors"
             >
-              Reload Application
+              Recarregar o app
             </button>
           </div>
         </div>

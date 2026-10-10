@@ -18,7 +18,7 @@ export function Scrivenings({ docs }: ScriveningsProps) {
   if (!textDocs.some(d => d.type === 'text')) {
     return (
       <div className="flex-1 flex items-center justify-center p-12 text-center text-on-surface-variant/40 bg-surface-container-low">
-        <p className="font-serif italic">No text documents in this selection.</p>
+        <p className="font-serif italic">Nenhum documento de texto nesta seleção.</p>
       </div>
     );
   }
@@ -37,7 +37,7 @@ export function Scrivenings({ docs }: ScriveningsProps) {
             {!isHeadingOnly(doc) && (
             <div 
               className="book-text prose prose-stone max-w-none font-serif text-lg leading-relaxed text-[#1A1A1A]"
-              dangerouslySetInnerHTML={{ __html: doc.content ? sanitizeHtml(doc.content) : '<p class="italic opacity-30">Empty document</p>' }}
+              dangerouslySetInnerHTML={{ __html: doc.content ? sanitizeHtml(doc.content) : '<p class="italic opacity-30">Documento vazio</p>' }}
             />
             )}
             

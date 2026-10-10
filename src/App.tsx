@@ -92,15 +92,15 @@ const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
   const defaultMeta = { section_type: 'Heading', is_include_in_compile: false, created_at: Date.now(), updated_at: Date.now(), status: 'To Do', label: 'none', label_color: 'transparent', synopsis: '', notes: '', target_word_count: 0, keywords: [], custom_metadata: {}, snapshots: [], comments: [], bookmarks: [] };
 
   return [
-    { id: manuscriptId, project_id: projectId, title: 'Manuscript', content: '', type: 'folder', parent_id: null, order: 0, metadata: { ...defaultMeta, is_include_in_compile: true, folder_role: 'manuscript' } as DocumentMetadata },
-    { id: charactersId, project_id: projectId, title: 'Characters', content: '', type: 'folder', parent_id: null, order: 1, metadata: { ...defaultMeta, folder_color: '#9B59B6', folder_role: 'characters' } as DocumentMetadata },
-    { id: placesId, project_id: projectId, title: 'Places', content: '', type: 'folder', parent_id: null, order: 2, metadata: { ...defaultMeta, folder_color: '#27AE60', folder_role: 'places' } as DocumentMetadata },
-    { id: researchId, project_id: projectId, title: 'Research', content: '', type: 'folder', parent_id: null, order: 3, metadata: { ...defaultMeta, folder_color: '#3498DB', folder_role: 'research' } as DocumentMetadata },
-    { id: trashId, project_id: projectId, title: 'Trash', content: '', type: 'trash', parent_id: null, order: 4, metadata: { ...defaultMeta, folder_color: '#95A5A6', folder_role: 'trash' } as DocumentMetadata },
-    { id: crypto.randomUUID(), project_id: projectId, title: 'Chapter 1', content: '', type: 'text', parent_id: manuscriptId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene', is_include_in_compile: true } as DocumentMetadata },
-    { id: crypto.randomUUID(), project_id: projectId, title: 'Character Sheet', content: '', type: 'characters', parent_id: charactersId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
-    { id: crypto.randomUUID(), project_id: projectId, title: 'Location Sheet', content: '', type: 'places', parent_id: placesId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
-    { id: crypto.randomUUID(), project_id: projectId, title: 'Notes', content: '', type: 'research', parent_id: researchId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
+    { id: manuscriptId, project_id: projectId, title: 'Manuscrito', content: '', type: 'folder', parent_id: null, order: 0, metadata: { ...defaultMeta, is_include_in_compile: true, folder_role: 'manuscript' } as DocumentMetadata },
+    { id: charactersId, project_id: projectId, title: 'Personagens', content: '', type: 'folder', parent_id: null, order: 1, metadata: { ...defaultMeta, folder_color: '#9B59B6', folder_role: 'characters' } as DocumentMetadata },
+    { id: placesId, project_id: projectId, title: 'Lugares', content: '', type: 'folder', parent_id: null, order: 2, metadata: { ...defaultMeta, folder_color: '#27AE60', folder_role: 'places' } as DocumentMetadata },
+    { id: researchId, project_id: projectId, title: 'Pesquisa', content: '', type: 'folder', parent_id: null, order: 3, metadata: { ...defaultMeta, folder_color: '#3498DB', folder_role: 'research' } as DocumentMetadata },
+    { id: trashId, project_id: projectId, title: 'Lixeira', content: '', type: 'trash', parent_id: null, order: 4, metadata: { ...defaultMeta, folder_color: '#95A5A6', folder_role: 'trash' } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Capítulo 1', content: '', type: 'text', parent_id: manuscriptId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene', is_include_in_compile: true } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Ficha de personagem', content: '', type: 'characters', parent_id: charactersId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Ficha de lugar', content: '', type: 'places', parent_id: placesId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
+    { id: crypto.randomUUID(), project_id: projectId, title: 'Notas', content: '', type: 'research', parent_id: researchId, order: 0, metadata: { ...defaultMeta, section_type: 'Scene' } as DocumentMetadata },
   ];
 };
 
@@ -366,7 +366,7 @@ export default function App() {
       await exportManuscript(format as ExportFormat, docs, project?.name, { paragraphStyle, ...extra });
     } catch (err) {
       if (err instanceof NothingToExportError) {
-        alert("Nenhum documento do Manuscript está marcado para compilar. Marque 'Include in Compile' no Inspector dos documentos que devem sair.");
+        alert('Nenhum documento do manuscrito está marcado para exportar. Marque "Incluir na exportação", no painel de detalhes, nos documentos que devem sair.');
       } else {
         console.error('Export failed:', err);
         alert(err instanceof Error && format === 'epub' ? err.message : 'Não foi possível exportar o documento.');
@@ -383,7 +383,7 @@ export default function App() {
       // O flush falhou (ex.: sem rede): sair agora jogaria a edicao fora.
       // Se sair mesmo assim, o onAuthStateChange guarda o pendente como rascunho
       // neste navegador e ele volta como snapshot no proximo login.
-      if (saveQueue.hasUnsaved() && !window.confirm('Há alterações que ainda não chegaram ao servidor (sem conexão?). Elas ficam guardadas neste navegador e voltam como snapshot quando você entrar de novo. Sair agora?')) return;
+      if (saveQueue.hasUnsaved() && !window.confirm('Há alterações que ainda não chegaram ao servidor (sem conexão?). Elas ficam guardadas neste navegador e voltam como versão guardada quando você entrar de novo. Sair agora?')) return;
       await supabase.auth.signOut();
       setUser(null);
       setProjects([]);
@@ -395,7 +395,7 @@ export default function App() {
     }
   };
 
-  const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string }>({ ok: true, text: 'Project Saved' });
+  const [saveMessage, setSaveMessage] = useState<{ ok: boolean; text: string }>({ ok: true, text: 'Projeto salvo' });
 
   // ⌘S grava de fato o que estiver na fila e só diz "salvo" se o banco confirmou.
   // O botão "Salvar" do editor confirma na própria faixa, sem o aviso flutuante.
@@ -404,12 +404,12 @@ export default function App() {
     // (doc apagado) em vez de deixar o ⌘S dizendo "veja a conexao" para sempre.
     await saveQueue.flush();
     // status, nao hasUnsaved: gravacao descartada (retry:false) sai da fila e
-    // nao pode virar "Project Saved".
+    // nao pode virar "Projeto salvo".
     const ok = saveQueue.status() === 'saved';
     if (ok) setLastSaved(new Date());
     if (!toast) return;
     const refused = saveQueue.heldError();
-    setSaveMessage(ok ? { ok, text: 'Project Saved' } : { ok, text: refused ? refusedMessage(refused) : 'Não foi possível salvar: veja a conexão' });
+    setSaveMessage(ok ? { ok, text: 'Projeto salvo' } : { ok, text: refused ? refusedMessage(refused) : 'Não foi possível salvar: veja a conexão' });
     setShowSaveIndicator(true);
     setTimeout(() => setShowSaveIndicator(false), 2000);
   };
@@ -644,7 +644,7 @@ export default function App() {
           removeDraft(window.localStorage, uid, draft.docId);
         }
         if (recovered) {
-          setTimeout(() => alert(`Recuperamos ${recovered === 1 ? '1 texto que não tinha sido salvo' : `${recovered} textos que não tinham sido salvos`} da última vez. Está em Snapshots, no Inspector, com "(não salvo ao fechar)" no título.`), 0);
+          setTimeout(() => alert(`Recuperamos ${recovered === 1 ? '1 texto que não tinha sido salvo' : `${recovered} textos que não tinham sido salvos`} da última vez. Está em Versões guardadas, no painel de detalhes, com "(não salvo ao fechar)" no título.`), 0);
         }
       }
 
@@ -1044,7 +1044,7 @@ export default function App() {
       }
     } else {
       console.error('[Supabase] Error creating project:', error);
-      alert(limitMessage(error?.message) ?? 'Failed to create project. Error: ' + (error?.message || 'Unknown response'));
+      alert(limitMessage(error?.message) ?? 'Não foi possível criar o projeto: ' + (error?.message || 'o servidor não respondeu'));
     }
   };
 
@@ -1178,7 +1178,7 @@ export default function App() {
         types: ['heading', 'paragraph'],
       }),
       Placeholder.configure({
-        placeholder: 'Start writing...',
+        placeholder: 'Comece a escrever...',
       }),
       CharacterCount,
       ParagraphFocus,
@@ -1222,37 +1222,37 @@ export default function App() {
   // Atalhos que o navegador reserva (⌘N, ⌘1-4, ⌥⌘I...) ficam sem rótulo.
   const menus = [
     {
-      label: 'File',
+      label: 'Arquivo',
       items: [
-        { label: 'New Text', onClick: () => handleAddDoc(null, 'text') },
-        { label: 'New Folder', onClick: () => handleAddDoc(null, 'folder') },
-        { label: 'Novo Livro / Parte', onClick: () => handleAddPart(selectedDocId) },
+        { label: 'Novo texto', onClick: () => handleAddDoc(null, 'text') },
+        { label: 'Nova pasta', onClick: () => handleAddDoc(null, 'folder') },
+        { label: 'Novo livro / parte', onClick: () => handleAddPart(selectedDocId) },
         { divider: true },
-        { label: 'Save', shortcut: '⌘S', onClick: handleSave },
-        { label: 'Export Draft...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
+        { label: 'Salvar', shortcut: '⌘S', onClick: handleSave },
+        { label: 'Exportar livro...', shortcut: '⇧⌘E', onClick: () => setIsExportOpen(true) },
       ]
     },
     {
-      label: 'Edit',
+      label: 'Editar',
       items: [
-        { label: 'Undo', shortcut: '⌘Z', disabled: !canUndo, onClick: () => globalEditor?.chain().focus().undo().run() },
-        { label: 'Redo', shortcut: '⇧⌘Z', disabled: !canRedo, onClick: () => globalEditor?.chain().focus().redo().run() },
+        { label: 'Desfazer', shortcut: '⌘Z', disabled: !canUndo, onClick: () => globalEditor?.chain().focus().undo().run() },
+        { label: 'Refazer', shortcut: '⇧⌘Z', disabled: !canRedo, onClick: () => globalEditor?.chain().focus().redo().run() },
         { divider: true },
-        { label: 'Go to Document...', shortcut: '⌘O', onClick: () => setIsQuickSearchOpen(true) },
+        { label: 'Ir para documento...', shortcut: '⌘O', onClick: () => setIsQuickSearchOpen(true) },
       ]
     },
     {
-      label: 'View',
+      label: 'Ver',
       items: [
-        { label: 'Editor', onClick: () => setViewMode('editor') },
-        { label: 'Corkboard', onClick: () => setViewMode('corkboard') },
-        { label: 'Outliner', onClick: () => setViewMode('outliner') },
-        { label: 'Scrivenings', onClick: () => setViewMode('scrivenings') },
+        { label: 'Documento', onClick: () => setViewMode('editor') },
+        { label: 'Mural', onClick: () => setViewMode('corkboard') },
+        { label: 'Tabela', onClick: () => setViewMode('outliner') },
+        { label: 'Texto contínuo', onClick: () => setViewMode('scrivenings') },
         { divider: true },
-        { label: 'Toggle Binder', onClick: () => setIsBinderOpen(!isBinderOpen) },
-        { label: 'Toggle Inspector', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
+        { label: 'Mostrar ou esconder a estrutura', onClick: () => setIsBinderOpen(!isBinderOpen) },
+        { label: 'Mostrar ou esconder os detalhes', onClick: () => setIsInspectorOpen(!isInspectorOpen) },
         { divider: true },
-        { label: 'Enter Composition Mode', shortcut: '⇧⌘F', disabled: !canCompose, onClick: openCompose },
+        { label: 'Modo foco', shortcut: '⇧⌘F', disabled: !canCompose, onClick: openCompose },
       ]
     },
     {
@@ -1260,19 +1260,19 @@ export default function App() {
       items: [
         { label: 'Sobre o ScribeFlow...', onClick: () => setIsAboutOpen(true) },
         { divider: true },
-        { label: 'Sair do Sistema', onClick: handleLogout },
+        { label: 'Sair da conta', onClick: handleLogout },
       ]
     },
     {
-      label: 'Project',
+      label: 'Projeto',
       items: [
-        { label: 'My Projects...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
-        { label: 'New Project...', onClick: handleNewProject },
+        { label: 'Meus projetos...', shortcut: '⌘P', onClick: () => setIsProjectsModalOpen(true) },
+        { label: 'Novo projeto...', onClick: handleNewProject },
         { divider: true },
-        { label: 'Project Settings...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
+        { label: 'Configurações do projeto...', shortcut: '⌥⌘,', onClick: () => setIsSettingsOpen(true) },
         { divider: true },
-        { label: 'New Character Sketch', onClick: () => handleAddDoc(null, 'characters') },
-        { label: 'New Setting Sketch', onClick: () => handleAddDoc(null, 'places') },
+        { label: 'Nova ficha de personagem', onClick: () => handleAddDoc(null, 'characters') },
+        { label: 'Nova ficha de lugar', onClick: () => handleAddDoc(null, 'places') },
       ]
     }
   ];
@@ -1341,7 +1341,7 @@ export default function App() {
   const handleRestoreSnapshot = (snapshot: Snapshot) => {
     if (!selectedDoc) return;
     const quando = new Date(snapshot.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-    if (!window.confirm(`Restaurar a versão de ${quando}? O texto atual fica guardado como snapshot antes.`)) return;
+    if (!window.confirm(`Restaurar a versão de ${quando}? O texto atual fica guardado como versão antes.`)) return;
     // O texto atual vira snapshot ANTES de ser trocado (antes nao ficava em
     // lugar nenhum), e o titulo volta sem o sufixo do snapshot de conflito.
     // selectedDoc.content e o texto atual (o onUpdate do editor grava no estado
@@ -1373,7 +1373,7 @@ export default function App() {
     if (!selectedDoc) return;
     const comment: Comment = {
       id,
-      author: user?.user_metadata?.full_name || user?.email || 'You',
+      author: user?.user_metadata?.full_name || user?.email || 'Você',
       text: '',
       timestamp: Date.now(),
       quote,
@@ -1542,7 +1542,7 @@ export default function App() {
         <button 
           onClick={() => { setIsBinderOpen(!isBinderOpen); if (isMobile) setIsInspectorOpen(false); }}
           className={cn("toolbar-btn-binder-toggle", isBinderOpen && "bg-black/10")}
-          title="Toggle Binder"
+          title="Mostrar ou esconder a estrutura"
         >
           <Layout size={18} />
         </button>
@@ -1576,28 +1576,28 @@ export default function App() {
           <button 
             onClick={() => setViewMode('editor')}
             className={cn("toolbar-view-btn", viewMode === 'editor' && "active")}
-            title="Document Mode"
+            title="Documento"
           >
             <FileText size={14} />
           </button>
           <button 
             onClick={() => setViewMode('corkboard')}
             className={cn("toolbar-view-btn", viewMode === 'corkboard' && "active")}
-            title="Corkboard Mode"
+            title="Mural de cartões"
           >
             <Grid size={14} />
           </button>
           <button 
             onClick={() => setViewMode('outliner')}
             className={cn("toolbar-view-btn", viewMode === 'outliner' && "active")}
-            title="Outliner Mode"
+            title="Tabela"
           >
             <Columns size={14} />
           </button>
           <button 
             onClick={() => setViewMode('scrivenings')}
             className={cn("toolbar-view-btn", viewMode === 'scrivenings' && "active")}
-            title="Scrivenings Mode"
+            title="Texto contínuo"
           >
             <PenTool size={14} />
           </button>
@@ -1607,7 +1607,7 @@ export default function App() {
         <button 
           onClick={() => setIsSplit(!isSplit)}
           className={cn("macos-btn", isSplit && "bg-black/10")}
-          title="Toggle Split View"
+          title="Dividir a tela"
         >
           <Columns size={16} />
         </button>
@@ -1622,7 +1622,7 @@ export default function App() {
         <div className="relative flex items-center">
           <input
             type="text"
-            placeholder="Search Project (⌘O)"
+            placeholder="Buscar no projeto (⌘O)"
             className="toolbar-search cursor-pointer"
             readOnly
             onFocus={() => setIsQuickSearchOpen(true)}
@@ -1640,28 +1640,28 @@ export default function App() {
           <button 
             onClick={openCompose}
             disabled={!canCompose}
-            title={canCompose ? 'Compose (F11 / ⇧⌘F)' : 'Selecione um documento de texto'}
+            title={canCompose ? 'Modo foco (F11 / ⇧⌘F)' : 'Selecione um documento de texto'}
             className="composition-btn mr-2 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <PenTool size={14} />
-            Compose
+            Foco
           </button>
           )}
           
           {!isMobile && (<>
-          <button onClick={() => setIsExportOpen(true)} className="macos-btn" title="Export Manuscript">
+          <button onClick={() => setIsExportOpen(true)} className="macos-btn" title="Exportar livro">
             <Download size={16} />
           </button>
           
-          <button onClick={() => setIsTargetsOpen(true)} className="macos-btn" title="Project Targets">
+          <button onClick={() => setIsTargetsOpen(true)} className="macos-btn" title="Metas do projeto">
             <Target size={16} />
           </button>
 
-          <button onClick={() => setIsStatsOpen(true)} className="macos-btn" title="Project Statistics">
+          <button onClick={() => setIsStatsOpen(true)} className="macos-btn" title="Estatísticas do projeto">
             <BarChart3 size={16} />
           </button>
 
-          <button onClick={() => setIsSettingsOpen(true)} className="macos-btn" title="Project Settings">
+          <button onClick={() => setIsSettingsOpen(true)} className="macos-btn" title="Configurações do projeto">
             <Settings size={16} />
           </button>
           </>)}
@@ -1671,7 +1671,7 @@ export default function App() {
           <button 
             onClick={() => { setIsInspectorOpen(!isInspectorOpen); if (isMobile) setIsBinderOpen(false); }}
             className={cn("macos-btn", isInspectorOpen && "bg-black/10")}
-            title="Toggle Inspector"
+            title="Mostrar ou esconder os detalhes"
           >
             <Info size={16} />
           </button>
@@ -1683,8 +1683,8 @@ export default function App() {
               <button
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                 className={cn("macos-btn", isMobileMenuOpen && "bg-black/10")}
-                title="More"
-                aria-label="More"
+                title="Mais"
+                aria-label="Mais"
                 aria-expanded={isMobileMenuOpen}
               >
                 <MoreHorizontal size={18} />
@@ -1694,13 +1694,13 @@ export default function App() {
                   <button type="button" aria-label="Fechar menu" className="fixed inset-0 z-[70] cursor-default" onClick={() => setIsMobileMenuOpen(false)} />
                   <div className="mobile-more-menu" role="menu">
                     <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsQuickSearchOpen(true); }}>
-                      <Search size={16} /> Search Project
+                      <Search size={16} /> Buscar no projeto
                     </button>
                     <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsExportOpen(true); }}>
-                      <Download size={16} /> Export Manuscript
+                      <Download size={16} /> Exportar livro
                     </button>
                     <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsSettingsOpen(true); }}>
-                      <Settings size={16} /> Project Settings
+                      <Settings size={16} /> Configurações do projeto
                     </button>
                     {user && (
                       <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); if (window.confirm(`Sair da conta ${user.email}?`)) void handleLogout(); }}>
@@ -1717,7 +1717,7 @@ export default function App() {
             <button
               onClick={() => { if (window.confirm(`Sair da conta ${user.email}?`)) void handleLogout(); }}
               className="macos-btn"
-              title={`Signed in as ${user.user_metadata?.full_name || user.email} — clique para sair`}
+              title={`Conectado como ${user.user_metadata?.full_name || user.email}. Clique para sair`}
             >
               {user.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />
@@ -1733,7 +1733,7 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden relative">
         {/* Binder Sidebar */}
         {isBinderOpen && isMobile && (
-          <button type="button" aria-label="Fechar Binder" className="mobile-backdrop" onClick={() => setIsBinderOpen(false)} />
+          <button type="button" aria-label="Fechar a estrutura" className="mobile-backdrop" onClick={() => setIsBinderOpen(false)} />
         )}
         {isBinderOpen && (
           <div style={isMobile ? undefined : { width: binderWidth }} className={cn("flex shrink-0", isMobile && "mobile-drawer")}>
@@ -1785,7 +1785,7 @@ export default function App() {
                       <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-on-surface-variant">
                         <Folder size={80} className="mb-6 opacity-10" />
                         <h3 className="text-3xl font-serif italic mb-3 text-primary">{selectedDoc.title}</h3>
-                        <p className="max-w-md text-sm leading-relaxed opacity-70">This is a folder. Switch to Corkboard or Outliner view to see its contents, or select a document inside it to start writing.</p>
+                        <p className="max-w-md text-sm leading-relaxed opacity-70">Esta é uma pasta. Use o mural ou a tabela para ver o que há dentro, ou escolha um documento dela para escrever.</p>
                       </div>
                     ) : (
                       <Editor 
@@ -1837,8 +1837,8 @@ export default function App() {
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center p-12 text-center text-on-surface-variant">
                   <BookOpen size={80} className="mb-6 opacity-10" />
-                  <h3 className="text-4xl font-serif italic mb-4 text-primary">Welcome to ScribeFlow</h3>
-                  <p className="max-w-md text-sm leading-relaxed opacity-70">Select a document from the binder to begin writing, or create a new one to start your next masterpiece.</p>
+                  <h3 className="text-4xl font-serif italic mb-4 text-primary">Boas-vindas ao ScribeFlow</h3>
+                  <p className="max-w-md text-sm leading-relaxed opacity-70">Escolha um documento na estrutura, à esquerda, para começar a escrever, ou crie um novo.</p>
                 </div>
               )}
             </div>
@@ -1871,8 +1871,8 @@ export default function App() {
             {/* Splitter */}
             {isMobile ? (
               <div className="mobile-sheet-header">
-                <span>Inspector</span>
-                <button type="button" className="macos-btn" aria-label="Fechar Inspector" onClick={() => setIsInspectorOpen(false)}>
+                <span>Detalhes</span>
+                <button type="button" className="macos-btn" aria-label="Fechar os detalhes" onClick={() => setIsInspectorOpen(false)}>
                   <CloseIcon size={18} />
                 </button>
               </div>
@@ -1973,11 +1973,11 @@ export default function App() {
         >
           <div className="context-menu-item" onClick={() => { handleAddDoc(contextMenu.id, 'text'); setContextMenu(null); }}>
             <div className="context-menu-icon"><File size={14} /></div>
-            New Text
+            Novo texto
           </div>
           <div className="context-menu-item" onClick={() => { handleAddDoc(contextMenu.id, 'folder'); setContextMenu(null); }}>
             <div className="context-menu-icon"><Folder size={14} /></div>
-            New Folder
+            Nova pasta
           </div>
           <div className="context-menu-item" onClick={() => { handleAddPart(contextMenu.id); setContextMenu(null); }}>
             <div className="context-menu-icon"><BookMarked size={14} /></div>
@@ -1992,12 +1992,12 @@ export default function App() {
           <div className="context-menu-separator" />
           <div className="context-menu-item" onClick={() => { setRenamingId(contextMenu.id); setContextMenu(null); }}>
             <div className="context-menu-icon"><Edit3 size={14} /></div>
-            Rename
+            Renomear
           </div>
           {contextMenu && contextMenu.id === trashFolder?.id ? (
             <div className="context-menu-item" onClick={() => { handleEmptyTrash(); setContextMenu(null); }} style={{ color: '#E74C3C' }}>
               <div className="context-menu-icon"><Trash2 size={14} /></div>
-              Esvaziar Lixeira
+              Esvaziar lixeira
             </div>
           ) : (
             <>
@@ -2011,7 +2011,7 @@ export default function App() {
               {!docs.find(d => d.id === contextMenu.id)?.metadata.folder_role && (
                 <div className="context-menu-item" onClick={() => { handleDeleteDoc(contextMenu.id); setContextMenu(null); }}>
                   <div className="context-menu-icon"><Trash2 size={14} /></div>
-                  {isInTrash(docs, contextMenu.id) ? 'Deletar Permanentemente' : 'Move to Trash'}
+                  {isInTrash(docs, contextMenu.id) ? 'Apagar de vez' : 'Mover para a lixeira'}
                 </div>
               )}
             </>
@@ -2020,7 +2020,7 @@ export default function App() {
           {contextMenu && docs.find(d => d.id === contextMenu.id)?.type === 'folder' && (
             <>
               <div className="context-menu-separator" />
-              <div className="px-3 py-1 text-xs text-gray-500 font-bold tracking-wide">Alterar Cor</div>
+              <div className="px-3 py-1 text-xs text-gray-500 font-bold tracking-wide">Alterar cor</div>
               <div className="flex gap-2 px-3 py-2 flex-wrap w-40">
                 {['#E74C3C', '#E67E22', '#F1C40F', '#27AE60', '#3498DB', '#9B59B6', '#95A5A6', '#1ABC9C', 'transparent'].map(color => (
                   <div
@@ -2049,14 +2049,14 @@ export default function App() {
       {/* Global Footer */}
       <footer className="app-footer h-[22px] bg-gradient-to-b from-[#E0DDD5] to-[#D5D2CA] border-t border-[#B5B2AA] flex items-center justify-between px-3 text-[10px] font-mono tracking-wider text-[#6A6760] uppercase">
         <div className="flex items-center">
-          <span className="opacity-70 max-md:hidden">PROJECT: <span className="font-bold text-[#436127]">{project?.name || 'Loading...'}</span></span>
+          <span className="opacity-70 max-md:hidden">PROJETO: <span className="font-bold text-[#436127]">{project?.name || 'Carregando...'}</span></span>
           <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3 max-md:hidden" />
           <button
             className="flex items-center gap-2 hover:text-[#436127] transition-colors"
-            title="Open Project Targets"
+            title="Abrir as metas do projeto"
             onClick={() => setIsTargetsOpen(true)}
           >
-            <span className="opacity-70">WORDS: <span className="font-bold text-[#436127]">{projectWordCount.toLocaleString()}</span></span>
+            <span className="opacity-70">PALAVRAS: <span className="font-bold text-[#436127]">{projectWordCount.toLocaleString('pt-BR')}</span></span>
             {(project?.settings?.target_word_count ?? 0) > 0 && (
               <span className="flex items-center gap-1.5">
                 <span className="w-16 h-1.5 rounded-full bg-black/15 overflow-hidden inline-block align-middle">
@@ -2076,13 +2076,13 @@ export default function App() {
             )}
             {(project?.settings?.session_target ?? 0) > 0 && (
               <span className="opacity-70 max-md:hidden">
-                · SESSION: <span className="font-bold text-[#436127]">{sessionWords.toLocaleString()}/{project!.settings.session_target.toLocaleString()}</span>
+                · SESSÃO: <span className="font-bold text-[#436127]">{sessionWords.toLocaleString('pt-BR')}/{project!.settings.session_target.toLocaleString('pt-BR')}</span>
               </span>
             )}
           </button>
         </div>
         <div className="flex items-center">
-          <span className="opacity-70 max-md:hidden">{selectedDoc ? `SELECTED: ${selectedDoc.title}` : 'NO SELECTION'}</span>
+          <span className="opacity-70 max-md:hidden">{selectedDoc ? `SELECIONADO: ${selectedDoc.title}` : 'NADA SELECIONADO'}</span>
           <div className="w-[1px] h-3 bg-[#C0BDB5] mx-3 max-md:hidden" />
           <div className="flex items-center gap-2">
             <div className={cn(
@@ -2092,7 +2092,7 @@ export default function App() {
               saveStatus === 'error' ? "bg-red-500 text-red-500" : 
               "bg-[#5B7A3D] text-[#5B7A3D]"
             )} />
-            <span className="font-bold">{!user ? 'LOCAL STORAGE ACTIVE' : saveStatus === 'pending' ? 'SAVING...' : saveStatus === 'error' ? 'SYNC ERROR' : 'CLOUD SYNC ACTIVE'}</span>
+            <span className="font-bold">{!user ? 'SÓ NESTE NAVEGADOR' : saveStatus === 'pending' ? 'SALVANDO...' : saveStatus === 'error' ? 'ERRO AO SALVAR' : 'SALVO NA NUVEM'}</span>
           </div>
         </div>
       </footer>
@@ -2135,7 +2135,7 @@ export default function App() {
                   Fechar Santuário
                 </button>
               </div>
-              <p className="mt-8 text-[9px] uppercase tracking-widest text-gray-600 font-bold">Built with Supabase + React</p>
+              <p className="mt-8 text-[9px] uppercase tracking-widest text-gray-600 font-bold">Feito com Supabase + React</p>
             </motion.div>
           </div>
         )}

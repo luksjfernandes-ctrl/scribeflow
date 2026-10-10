@@ -85,6 +85,6 @@ export function recoverySnapshot(
 ): Snapshot | null {
   const content = draft.payload.content;
   if (typeof content !== 'string' || content === serverDoc.content) return null;
-  const title = plainTitle(typeof draft.payload.title === 'string' ? draft.payload.title : serverDoc.title) || 'Untitled';
+  const title = plainTitle(typeof draft.payload.title === 'string' ? draft.payload.title : serverDoc.title) || 'Sem título';
   return { id, timestamp: draft.at, title: `${title} (não salvo ao fechar)`, content };
 }

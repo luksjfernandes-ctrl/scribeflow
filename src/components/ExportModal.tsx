@@ -20,18 +20,18 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
   if (!isOpen) return null;
 
   const formats = [
-    { id: 'pdf', name: 'PDF Document', icon: <FileText size={20} className="text-red-500" />, ext: '.pdf' },
+    { id: 'pdf', name: 'Documento PDF', icon: <FileText size={20} className="text-red-500" />, ext: '.pdf' },
     { id: 'docx', name: 'Microsoft Word', icon: <FileType size={20} className="text-blue-500" />, ext: '.docx' },
-    { id: 'rtf', name: 'Rich Text Format', icon: <FileCode size={20} className="text-gray-500" />, ext: '.rtf' },
-    { id: 'epub', name: 'ePub eBook', icon: <Download size={20} className="text-green-500" />, ext: '.epub' },
-    { id: 'txt', name: 'Plain Text', icon: <FileText size={20} className="text-gray-400" />, ext: '.txt' },
+    { id: 'rtf', name: 'Rich Text (RTF)', icon: <FileCode size={20} className="text-gray-500" />, ext: '.rtf' },
+    { id: 'epub', name: 'Livro digital ePub', icon: <Download size={20} className="text-green-500" />, ext: '.epub' },
+    { id: 'txt', name: 'Texto simples', icon: <FileText size={20} className="text-gray-400" />, ext: '.txt' },
   ];
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" onClick={onClose}>
       <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-[101] overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#222]">
-          <h2 className="text-lg font-semibold text-gray-100">Compile & Export</h2>
+          <h2 className="text-lg font-semibold text-gray-100">Exportar livro</h2>
           <button onClick={onClose} className="p-1 hover:bg-[#333] rounded-md transition-colors text-gray-400">
             <X size={20} />
           </button>

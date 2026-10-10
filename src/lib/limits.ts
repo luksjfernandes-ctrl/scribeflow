@@ -36,10 +36,10 @@ export const limitMessage = (error: string | null | undefined): string | null =>
     return `Não salvou: o documento passou de ${LIMITS.docContentMB} MB. Divida o texto.`;
   }
   if (error.includes('docs_metadata_tamanho')) {
-    return `Não salvou: as versões guardadas passaram de ${LIMITS.docMetadataMB} MB. Apague snapshots antigos.`;
+    return `Não salvou: as versões guardadas passaram de ${LIMITS.docMetadataMB} MB. Apague versões antigas.`;
   }
   if (error.includes('scribeflow_limite: espaco')) {
-    return `Não salvou: sua conta chegou a ${LIMITS.userTotalMB} MB. Apague documentos ou snapshots.`;
+    return `Não salvou: sua conta chegou a ${LIMITS.userTotalMB} MB. Apague documentos ou versões guardadas.`;
   }
   if (error.includes('scribeflow_limite: docs')) {
     return `Sua conta chegou ao limite de ${LIMITS.docsPerUser.toLocaleString('pt-BR')} documentos.`;

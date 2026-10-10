@@ -43,7 +43,7 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
             <div className="flex-1 px-4 pb-3 flex flex-col min-h-0">
               <textarea
                 className="flex-1 w-full bg-transparent border-none focus:outline-none text-[13px] font-serif italic text-on-surface-variant/80 resize-none leading-relaxed placeholder:text-on-surface-variant/20"
-                placeholder="No synopsis..."
+                placeholder="Sem sinopse..."
                 value={doc.metadata?.synopsis || ''}
                 onChange={(e) => {
                   e.stopPropagation();
@@ -81,7 +81,7 @@ export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProp
                       />
                     </div>
                     <div className="text-[8px] text-on-surface-variant/40 mt-0.5 text-right">
-                      {words} / {target} words
+                      {words} / {target} palavras
                     </div>
                   </div>
                 );

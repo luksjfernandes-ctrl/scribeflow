@@ -28,9 +28,9 @@ export function CompositionSettings({ prefs, onUpdate }: CompositionSettingsProp
   }, [isOpen]);
 
   const FONTS = [
-    { label: 'Serif (Santuário)', value: 'serif' },
-    { label: 'Sans-serif (Moderno)', value: 'system-ui' },
-    { label: 'Monospaced (Draft)', value: 'monospace' },
+    { label: 'Serifada (Santuário)', value: 'serif' },
+    { label: 'Sem serifa (Moderna)', value: 'system-ui' },
+    { label: 'Monoespaçada (Rascunho)', value: 'monospace' },
   ];
 
   return (

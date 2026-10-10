@@ -132,7 +132,7 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
       {/* Floating Meta (Auto-hiding) */}
       <div className="fixed bottom-10 left-10 opacity-0 hover:opacity-100 transition-opacity duration-700">
         <p className="text-[9px] font-mono text-gray-700 uppercase tracking-widest font-bold">
-          {editor.storage.characterCount.words()} palavras · ScribeFlow Sanctuary
+          {editor.storage.characterCount.words()} palavras · ScribeFlow
         </p>
       </div>
     </motion.div>

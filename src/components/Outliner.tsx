@@ -3,6 +3,7 @@ import { Doc } from '../types';
 import { getDocIcon } from '../utils/getDocIcon';
 import { LABEL_COLORS } from '../constants';
 import { outlineWords } from '../lib/tree';
+import { LABEL_OPTIONS, STATUS_OPTIONS } from '../lib/metadataLabels';
 
 interface OutlinerProps {
   docs: Doc[];
@@ -26,13 +27,13 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
       <table className="w-full border-collapse text-sm">
         <thead className="sticky top-0 z-10 bg-[#F2F0EB] border-b border-[#B5B2AA]">
           <tr>
-            <TH className="w-64">Title</TH>
+            <TH className="w-64">Título</TH>
             <TH className="w-32">Status</TH>
-            <TH className="w-32">Label</TH>
-            <TH className="w-40">Progress</TH>
-            <TH className="w-20">Target</TH>
-            <TH className="w-16">Compile</TH>
-            <th className="p-2 text-left font-bold uppercase tracking-wider text-[#5A5A5A] text-[9px]">Synopsis</th>
+            <TH className="w-32">Rótulo</TH>
+            <TH className="w-40">Progresso</TH>
+            <TH className="w-20">Meta</TH>
+            <TH className="w-16">Exportar</TH>
+            <th className="p-2 text-left font-bold uppercase tracking-wider text-[#5A5A5A] text-[9px]">Sinopse</th>
           </tr>
         </thead>
         <tbody>
@@ -75,10 +76,9 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
                     }}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <option value="To Do">To Do</option>
-                    <option value="First Draft">First Draft</option>
-                    <option value="Revised Draft">Revised Draft</option>
-                    <option value="Final Draft">Final Draft</option>
+                    {STATUS_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
                   </select>
                 </td>
                 <td className="p-2 border-r border-[#E2DFD8]">
@@ -95,11 +95,9 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <option value="none">No Label</option>
-                      <option value="red">Chapter</option>
-                      <option value="green">Scene</option>
-                      <option value="blue">Research</option>
-                      <option value="yellow">Note</option>
+                      {LABEL_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
                     </select>
                   </div>
                 </td>
@@ -115,7 +113,7 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
                       <span className="text-[10px] font-mono text-on-surface-variant/60 w-8 text-right">{pct}%</span>
                     </div>
                   ) : (
-                    <span className="text-[11px] font-mono text-on-surface-variant/50">{words} words</span>
+                    <span className="text-[11px] font-mono text-on-surface-variant/50">{words} palavras</span>
                   )}
                 </td>
                 <td className="p-2 border-r border-[#E2DFD8] text-right">
@@ -143,7 +141,7 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
                   />
                 </td>
                 <td className="p-3 text-xs text-on-surface-variant/60 font-serif italic truncate max-w-xs">
-                  {doc.metadata?.synopsis || 'No synopsis...'}
+                  {doc.metadata?.synopsis || 'Sem sinopse...'}
                 </td>
               </tr>
             );
