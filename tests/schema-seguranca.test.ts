@@ -11,6 +11,7 @@ const A = '00000000-0000-0000-0000-00000000000a'
 const B = '00000000-0000-0000-0000-00000000000b'
 const C = '00000000-0000-0000-0000-00000000000c'
 const D = '00000000-0000-0000-0000-00000000000d'
+const E = '00000000-0000-0000-0000-00000000000e'
 
 let db: PGlite
 
@@ -44,7 +45,7 @@ before(async () => {
     GRANT USAGE ON SCHEMA public, auth TO anon, authenticated;
     GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
-    INSERT INTO auth.users VALUES ('${A}'), ('${B}'), ('${C}'), ('${D}');
+    INSERT INTO auth.users VALUES ('${A}'), ('${B}'), ('${C}'), ('${D}'), ('${E}');
     CREATE PUBLICATION supabase_realtime;
   `)
   const schema = readFileSync(new URL('../supabase_schema.sql', import.meta.url), 'utf8')
@@ -113,4 +114,24 @@ test('20.000 docs e 100 livros por conta', async () => {
   assert.match((await usr(C, `INSERT INTO public.docs(id, project_id, title, type) VALUES ('C20001', 'PC', 'x', 'text')`)).erro ?? '', /scribeflow_limite: docs/)
   assert.equal((await usr(D, `INSERT INTO public.projects(id, name, owner_id) SELECT 'D' || g, 'x', $1 FROM generate_series(1, 100) g`, [D])).erro, undefined)
   assert.match((await usr(D, `INSERT INTO public.projects(id, name, owner_id) VALUES ('D101', 'x', $1)`, [D])).erro ?? '', /scribeflow_limite: projetos/)
+})
+
+test('perto do teto: editar doc comprimivel passa; troca por texto aleatorio e barrada', async () => {
+  // Em disco a conta tem ~24,5 MB (13 docs aleatorios); o doc EM ocupa poucos KB
+  // comprimido, mas ~6 MB cru.
+  await usr(E, `INSERT INTO public.projects(id, name, owner_id) VALUES ('PE', 'Livro E', $1)`, [E])
+  for (let i = 1; i <= 13; i++) {
+    const r = await usr(E, `INSERT INTO public.docs(id, project_id, title, type, content) VALUES ('E${i}', 'PE', 'x', 'text', ${aleatorio(59000)})`)
+    assert.equal(r.erro, undefined)
+  }
+  const em = await usr(E, `INSERT INTO public.docs(id, project_id, title, type, content, metadata)
+    VALUES ('EM', 'PE', 'x', 'text', repeat('palavra ', 237500), jsonb_build_object('snapshots', repeat('versao antiga ', 300000)))`)
+  assert.equal(em.erro, undefined)
+  assert.equal((await usr(E, `UPDATE public.docs SET content = content || 'x' WHERE id = 'EM'`)).erro, undefined)
+  // Mesmo tamanho cru, mas incompressivel: cresce ~1,9 MB em disco e estoura.
+  const troca = await usr(E, `UPDATE public.docs SET content = ${aleatorio(59375)} WHERE id = 'EM'`)
+  assert.match(troca.erro ?? '', /scribeflow_limite: espaco/)
+  // A recusa desfaz a gravacao: o doc continua como estava.
+  const atual = await usr(E, `SELECT left(content, 8) AS inicio FROM public.docs WHERE id = 'EM'`)
+  assert.equal(atual.rows[0]?.inicio, 'palavra ')
 })

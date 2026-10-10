@@ -244,6 +244,11 @@ CREATE TRIGGER scribeflow_limite_docs_insert
 
 -- UPDATE: o autosave grava um doc por vez. So dispara quando corpo ou metadata
 -- mudam, entao reordenar o Binder (`order`, `parent_id`) nao paga a soma.
+-- Roda DEPOIS de gravar para medir tudo pelo tamanho em disco (comprimido),
+-- igual ao INSERT. Medir o NEW cru contra as outras linhas comprimidas recusaria
+-- uma edicao de 1 caractere em doc grande perto do teto; medir so o crescimento
+-- cru deixaria trocar texto repetitivo por aleatorio do mesmo tamanho cru e
+-- crescer em disco sem checagem. Linha que nao cresceu em disco sempre passa.
 CREATE OR REPLACE FUNCTION public.scribeflow_limite_docs()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -253,27 +258,31 @@ DECLARE
   dono uuid;
   usados bigint;
 BEGIN
+  IF coalesce(pg_column_size(NEW.content), 0) + coalesce(pg_column_size(NEW.metadata), 0)
+     <= coalesce(pg_column_size(OLD.content), 0) + coalesce(pg_column_size(OLD.metadata), 0) THEN
+    RETURN NULL;
+  END IF;
+
   SELECT owner_id INTO dono FROM public.projects WHERE id = NEW.project_id;
   IF dono IS NULL THEN
-    RETURN NEW;
+    RETURN NULL;
   END IF;
 
   SELECT coalesce(sum(coalesce(pg_column_size(d.content), 0) + coalesce(pg_column_size(d.metadata), 0)), 0)
     INTO usados
     FROM public.docs d
     JOIN public.projects p ON p.id = d.project_id
-   WHERE p.owner_id = dono
-     AND d.id <> NEW.id;
+   WHERE p.owner_id = dono;
 
-  IF usados + coalesce(pg_column_size(NEW.content), 0) + coalesce(pg_column_size(NEW.metadata), 0) > 25000000 THEN
+  IF usados > 25000000 THEN
     RAISE EXCEPTION 'scribeflow_limite: espaco' USING ERRCODE = 'check_violation';
   END IF;
-  RETURN NEW;
+  RETURN NULL;
 END $$;
 
 DROP TRIGGER IF EXISTS scribeflow_limite_docs_update ON public.docs;
 CREATE TRIGGER scribeflow_limite_docs_update
-  BEFORE UPDATE OF content, metadata ON public.docs
+  AFTER UPDATE OF content, metadata ON public.docs
   FOR EACH ROW EXECUTE FUNCTION public.scribeflow_limite_docs();
 
 CREATE OR REPLACE FUNCTION public.scribeflow_limite_projetos()

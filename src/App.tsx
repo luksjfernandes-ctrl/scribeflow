@@ -75,7 +75,7 @@ import { useStructuralFolders, getStructuralFolder } from './hooks/useStructural
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
 import { isRecoveryUrl } from './lib/password';
-import { limitMessage } from './lib/limits';
+import { isLimitError, limitMessage, refusedMessage } from './lib/limits';
 
 /** Lido no carregamento, antes de o supabase-js consumir o hash do link de recuperação. */
 const OPENED_FROM_RECOVERY_LINK = typeof window !== 'undefined' && isRecoveryUrl(window.location.hash);
@@ -171,9 +171,6 @@ export default function App() {
   }, [activeProjectId]);
   const isLocalOperationRef = React.useRef<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
-  // Erro de limite do banco (lib/limits.ts): tentar de novo nao resolve, entao
-  // o indicador diz o motivo em vez de "tentando de novo".
-  const [saveErrorText, setSaveErrorText] = useState<string | null>(null);
   // Indicador de salvamento: hora da última confirmação do banco nesta sessão.
   const prevSaveStatusRef = React.useRef<SaveStatus>('saved');
   useEffect(() => {
@@ -201,6 +198,10 @@ export default function App() {
         if (expectedAt !== undefined) q = q.eq('updated_at', expectedAt);
         return q.select('id');
       };
+      // Limite do banco (lib/limits.ts): a fila guarda a edicao sem reenviar a
+      // cada 5 s, porque a mesma gravacao seria recusada de novo.
+      const failure = (error: { code?: string; message: string }) =>
+        isLimitError(error) ? { ok: false, hold: true, error: error.message } : { ok: false, retry: true, error: error.message };
       const stamp = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
 
       let base = docBaseRef.current.get(docId);
@@ -237,7 +238,7 @@ export default function App() {
       if (contested && base && base.updatedAt !== null) {
         for (let attempt = 0; attempt < 3 && base.updatedAt !== null; attempt++) {
           const { data, error } = await update(body, base.updatedAt);
-          if (error) return { ok: false, retry: true, error: error.message };
+          if (error) return failure(error);
           if (data && data.length > 0) return finish();
 
           const { data: current, error: readError } = await supabase
@@ -276,21 +277,15 @@ export default function App() {
       }
 
       const { data, error } = await update(body);
-      if (error) return { ok: false, retry: true, error: error.message };
+      if (error) return failure(error);
       if (!data || data.length === 0) return { ok: false, retry: false, error: 'nenhuma linha atualizada' };
       // Gravacao sem a disputa (ordem, pasta): a base nao avanca, senao
       // esconderia uma gravacao da outra aba feita no meio.
       if (!contested) return { ok: true };
       return finish();
     },
-    onStatus: (status) => {
-      setSaveStatus(status);
-      if (status === 'saved') setSaveErrorText(null);
-    },
-    onError: (docId, error) => {
-      console.error(`[Save] falha ao gravar o doc ${docId}:`, error);
-      setSaveErrorText(limitMessage(error));
-    },
+    onStatus: setSaveStatus,
+    onError: (docId, error) => console.error(`[Save] falha ao gravar o doc ${docId}:`, error),
   }));
 
   useEffect(() => {
@@ -432,7 +427,8 @@ export default function App() {
     const ok = !saveQueue.hasUnsaved();
     if (ok) setLastSaved(new Date());
     if (!toast) return;
-    setSaveMessage(ok ? { ok, text: 'Project Saved' } : { ok, text: 'Não foi possível salvar: veja a conexão' });
+    const refused = saveQueue.heldError();
+    setSaveMessage(ok ? { ok, text: 'Project Saved' } : { ok, text: refused ? refusedMessage(refused) : 'Não foi possível salvar: veja a conexão' });
     setShowSaveIndicator(true);
     setTimeout(() => setShowSaveIndicator(false), 2000);
   };
@@ -826,6 +822,7 @@ export default function App() {
 
     if (user && activeProjectId) {
       isLocalOperationRef.current = true;
+      let inserted = false;
       try {
         const docWithProjectId = { ...newDoc, project_id: activeProjectId };
         const { error } = await supabase.from('docs').insert(docWithProjectId);
@@ -837,12 +834,15 @@ export default function App() {
           return reorder ? applyOrderUpdates(next, reorder) : next;
         });
         if (reorder) persistOrderUpdates(reorder);
+        inserted = true;
       } catch (e) {
         console.error('Error adding doc:', e);
-        const limit = limitMessage(e instanceof Error ? e.message : (e as { message?: string })?.message);
+        const limit = limitMessage((e as { message?: string })?.message);
         if (limit) alert(limit);
       }
       setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
+      // Sem o insert, nao ha doc para selecionar nem pasta para abrir.
+      if (!inserted) return;
     } else if (!user) {
       setDocs(curr => [...curr, newDoc]);
     }
@@ -1001,9 +1001,18 @@ export default function App() {
           .insert(initialDocs)
           .select();
 
-        if (docsError) {
+        if (docsError && isLimitError(docsError)) {
+          // Cota cheia: o livro ficaria vazio, sem Manuscript, e contaria no limite
+          // de livros. Desfaz em vez de abrir um projeto quebrado.
           console.error('TEMPLATE INSERT ERROR:', docsError);
-          alert(limitMessage(docsError.message) ?? 'Erro ao criar estrutura do projeto: ' + docsError.message);
+          await supabase.from('projects').delete().eq('id', newProjectId);
+          setProjects(prev => prev.filter(p => p.id !== newProjectId));
+          setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
+          alert(refusedMessage(docsError.message));
+          return;
+        } else if (docsError) {
+          console.error('TEMPLATE INSERT ERROR:', docsError);
+          alert('Erro ao criar estrutura do projeto: ' + docsError.message);
         } else if (createdDocs) {
           setDocs(createdDocs as Doc[]);
         }
@@ -1080,7 +1089,8 @@ export default function App() {
           console.error('[Supabase] Erro ao reler a ordem do binder:', e);
         }
       } else {
-        setSaveStatus('saved');
+        // O que a fila de texto tem a dizer continua valendo (ex.: doc recusado).
+        setSaveStatus(saveQueue.status());
       }
     }).finally(() => {
       pendingOrderSavesRef.current -= 1;
@@ -1120,7 +1130,7 @@ export default function App() {
     if (error) {
       console.error('[Supabase] Erro ao renomear o projeto:', error);
       setProjects(prev => prev.map(p => (p.id === id ? { ...p, name: previous.name, updated_at: previous.updated_at } : p)));
-      alert('Não foi possível renomear o livro: ' + error.message);
+      alert(limitMessage(error.message) ?? 'Não foi possível renomear o livro: ' + error.message);
     }
   };
 
@@ -1380,7 +1390,8 @@ export default function App() {
       const { error } = await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
       if (error) {
         console.error('[Supabase] Erro ao gravar os ajustes do projeto:', error.message);
-        setSaveErrorText(limitMessage(error.message));
+        const limit = limitMessage(error.message);
+        if (limit) alert(limit);
         setSaveStatus('error');
       }
     }
@@ -1758,7 +1769,7 @@ export default function App() {
                             status={saveStatus}
                             online={isOnline}
                             unsaved={saveStatus !== 'saved'}
-                            errorText={saveErrorText}
+                            errorText={saveStatus === 'error' && saveQueue.heldError() ? refusedMessage(saveQueue.heldError()) : null}
                             savedAt={lastSaved ?? (docBaseRef.current.get(selectedDoc.id)?.updatedAt ? new Date(docBaseRef.current.get(selectedDoc.id)!.updatedAt!) : null)}
                             onSave={() => handleSave(false)}
                           />
@@ -1986,7 +1997,14 @@ export default function App() {
                           const newMetadata = { ...targetDoc.metadata, folder_color, updated_at: Date.now() };
                           
                           if (user && activeProjectId) {
-                            await supabase.from('docs').update({ metadata: newMetadata }).eq('id', targetId);
+                            const { error } = await supabase.from('docs').update({ metadata: newMetadata }).eq('id', targetId);
+                            if (error) {
+                              // Sem isso a cor ficava na tela e sumia no proximo recarregamento.
+                              console.error('[Supabase] Erro ao gravar a cor da pasta:', error.message);
+                              alert(isLimitError(error) ? refusedMessage(error.message) : 'Não foi possível salvar a cor.');
+                              setContextMenu(null);
+                              return;
+                            }
                           }
                           
                           setDocs(curr => curr.map(d => d.id === targetId ? { ...d, metadata: newMetadata } : d));

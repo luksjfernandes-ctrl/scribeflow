@@ -3,8 +3,9 @@
  *
  * O plano gratis do Supabase tem 500 MB para o banco inteiro. Sem teto, uma
  * conta sozinha enche o banco e o app fica somente leitura para todo mundo.
- * Quem barra e o Postgres; aqui ficam so os numeros para a mensagem e a
- * traducao do erro, sem React nem Supabase (tests/limits.test.ts).
+ * Quem barra e o Postgres; aqui ficam os numeros para a mensagem e a
+ * classificacao do erro, sem React nem Supabase (tests/limits.test.ts, que
+ * tambem confere se os numeros batem com o schema).
  */
 
 export const LIMITS = {
@@ -15,18 +16,29 @@ export const LIMITS = {
   docsPerUser: 20000,
 } as const;
 
-/** Mensagem em portugues quando o erro do banco e um dos limites; null se for
- *  outro erro (rede, RLS etc.), que segue o tratamento de sempre. */
+interface DbError {
+  code?: string;
+  message?: string;
+}
+
+/** O banco recusou o conteudo (CHECK ou cota): tentar de novo igual nao adianta.
+ *  23514 = check_violation, o mesmo SQLSTATE que os gatilhos de cota usam. */
+export const isLimitError = (error: DbError | null | undefined): boolean =>
+  !!error && (error.code === '23514' || (error.message ?? '').includes('scribeflow_limite'));
+
+/** Mensagem curta em portugues para o erro de limite; null se for outro erro
+ *  (rede, RLS etc.), que segue o tratamento de sempre. Curta porque aparece na
+ *  faixa de salvamento, que corta o texto em telas estreitas. */
 export const limitMessage = (error: string | null | undefined): string | null => {
   if (!error) return null;
   if (error.includes('docs_content_tamanho')) {
-    return `Este documento passou de ${LIMITS.docContentMB} MB e não foi salvo. Divida o texto em mais de um documento.`;
+    return `Não salvou: o documento passou de ${LIMITS.docContentMB} MB. Divida o texto.`;
   }
   if (error.includes('docs_metadata_tamanho')) {
-    return `As notas e versões guardadas deste documento passaram de ${LIMITS.docMetadataMB} MB. Apague versões antigas (snapshots) para voltar a salvar.`;
+    return `Não salvou: as versões guardadas passaram de ${LIMITS.docMetadataMB} MB. Apague snapshots antigos.`;
   }
   if (error.includes('scribeflow_limite: espaco')) {
-    return `Sua conta chegou a ${LIMITS.userTotalMB} MB de texto e não salvou a última alteração. Apague documentos ou versões antigas para liberar espaço.`;
+    return `Não salvou: sua conta chegou a ${LIMITS.userTotalMB} MB. Apague documentos ou snapshots.`;
   }
   if (error.includes('scribeflow_limite: docs')) {
     return `Sua conta chegou ao limite de ${LIMITS.docsPerUser.toLocaleString('pt-BR')} documentos.`;
@@ -38,3 +50,7 @@ export const limitMessage = (error: string | null | undefined): string | null =>
   if (error.includes('projects_settings_tamanho')) return 'Os ajustes deste livro passaram do tamanho máximo.';
   return null;
 };
+
+/** Texto para um doc que o banco recusou: o do limite, ou um generico. */
+export const refusedMessage = (error: string | null | undefined): string =>
+  limitMessage(error) ?? 'Não salvou: o banco recusou a última alteração.';

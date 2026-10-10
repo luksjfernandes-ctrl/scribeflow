@@ -161,6 +161,46 @@ test('update que casa 0 linhas vira erro visivel e nao fica em loop', async () =
   assert.equal(t.timers.filter(Boolean).length, 0)
 })
 
+test('recusa do banco (limite) fica guardada, sem reenvio automatico', async () => {
+  const t = setup({ results: [{ ok: false, hold: true, error: 'scribeflow_limite: espaco' }] })
+  t.queue.enqueue('a', 'p1', { fields: { content: '<p>grande</p>' } })
+  await t.queue.flush()
+
+  assert.equal(t.queue.status(), 'error')
+  assert.equal(t.queue.hasUnsaved(), true, 'beforeunload continua avisando')
+  assert.equal(t.queue.heldError(), 'scribeflow_limite: espaco')
+  assert.equal(t.timers.filter(Boolean).length, 0, 'nenhum reenvio agendado')
+
+  // Edicao em OUTRO doc: o flush do timer grava b e nao reenvia a.
+  t.queue.enqueue('b', 'p1', { fields: { title: 'B' } })
+  await t.queue.flush(false)
+  assert.deepEqual(t.calls.map((c) => c.docId), ['a', 'b'])
+  assert.equal(t.queue.status(), 'error')
+})
+
+test('nova edicao no doc recusado tenta de novo e limpa o erro se passar', async () => {
+  const t = setup({ results: [{ ok: false, hold: true, error: 'limite' }] })
+  t.queue.enqueue('a', 'p1', { fields: { content: '<p>grande</p>' } })
+  await t.queue.flush()
+  t.queue.enqueue('a', 'p1', { fields: { content: '<p>menor</p>' } })
+  assert.equal(t.queue.heldError(), null)
+  await t.queue.flush(false)
+
+  assert.equal(t.calls.length, 2)
+  assert.equal(t.calls[1].payload.content, '<p>menor</p>')
+  assert.equal(t.queue.status(), 'saved')
+  assert.equal(t.queue.hasUnsaved(), false)
+})
+
+test('flush manual (⌘S) reenvia o doc recusado', async () => {
+  const t = setup({ results: [{ ok: false, hold: true, error: 'limite' }] })
+  t.queue.enqueue('a', 'p1', { fields: { content: '<p>x</p>' } })
+  await t.queue.flush()
+  await t.queue.flush()
+  assert.equal(t.calls.length, 2)
+  assert.equal(t.queue.status(), 'saved')
+})
+
 test('reenfileirar uma falha nao passa por cima de edicao feita durante o await', async () => {
   const t = setup({ results: [{ ok: false, retry: true }] })
   t.queue.enqueue('a', 'p1', { metadataPatch: { subtitle: 'velho' } })

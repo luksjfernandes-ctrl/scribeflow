@@ -28,6 +28,10 @@ export interface WriteResult {
   ok: boolean;
   /** false = nao adianta tentar de novo (ex.: 0 linhas, doc apagado ou RLS). */
   retry?: boolean;
+  /** true = o banco recusou o conteudo (ex.: limite de tamanho). A edicao fica
+   *  guardada, sem reenvio automatico: volta a ir na proxima edicao do doc ou num
+   *  flush manual. Reenviar a cada 5 s so repetiria a recusa. */
+  hold?: boolean;
   error?: string;
 }
 
@@ -85,6 +89,8 @@ export class SaveQueue {
   private timer: unknown = null;
   private chain: Promise<void> = Promise.resolve();
   private failed = false;
+  /** Docs recusados pelo banco (WriteResult.hold), com o erro. */
+  private held = new Map<string, string>();
   private lastStatus: SaveStatus = 'saved';
   private opts: Required<Omit<SaveQueueOptions, 'onStatus' | 'onError'>> &
     Pick<SaveQueueOptions, 'onStatus' | 'onError'>;
@@ -111,15 +117,24 @@ export class SaveQueue {
     };
     const previous = this.pending.get(docId);
     this.pending.set(docId, previous ? mergeEntry(previous, entry) : entry);
+    // Edicao nova num doc recusado: tenta de novo (pode ter encolhido).
+    this.held.delete(docId);
     this.schedule(this.opts.delayMs);
     this.emit();
   }
 
-  /** Grava ja o que estiver pendente. Flushes sao serializados, nunca se cruzam. */
-  flush(): Promise<void> {
+  /** Grava ja o que estiver pendente. Flushes sao serializados, nunca se cruzam.
+   *  O flush manual (padrao) reenvia tambem os docs recusados; o do timer, nao. */
+  flush(includeHeld = true): Promise<void> {
     this.cancelTimer();
-    this.chain = this.chain.then(() => this.runFlush());
+    this.chain = this.chain.then(() => this.runFlush(includeHeld));
     return this.chain;
+  }
+
+  /** Erro do banco de um doc recusado (WriteResult.hold), se houver. */
+  heldError(): string | null {
+    const first = this.held.values().next();
+    return first.done ? null : first.value;
   }
 
   /**
@@ -160,7 +175,7 @@ export class SaveQueue {
   }
 
   status(): SaveStatus {
-    if (this.failed) return 'error';
+    if (this.failed || this.held.size > 0) return 'error';
     return this.hasUnsaved() ? 'pending' : 'saved';
   }
 
@@ -176,7 +191,7 @@ export class SaveQueue {
     this.cancelTimer();
     this.timer = this.opts.setTimer(() => {
       this.timer = null;
-      void this.flush();
+      void this.flush(false);
     }, ms);
   }
 
@@ -209,14 +224,16 @@ export class SaveQueue {
     return updatedAt;
   }
 
-  private async runFlush(): Promise<void> {
-    if (this.pending.size === 0) {
+  private async runFlush(includeHeld: boolean): Promise<void> {
+    const batch = new Map([...this.pending].filter(([id]) => includeHeld || !this.held.has(id)));
+    if (batch.size === 0) {
       this.emit();
       return;
     }
-    const batch = new Map(this.pending);
-    this.pending.clear();
-    batch.forEach((entry, id) => this.inflight.set(id, entry));
+    batch.forEach((entry, id) => {
+      this.pending.delete(id);
+      this.inflight.set(id, entry);
+    });
     this.emit();
 
     let anyFailure = false;
@@ -232,13 +249,20 @@ export class SaveQueue {
       }
       this.inflight.delete(docId);
 
+      if (result.ok) this.held.delete(docId);
+
       if (!result.ok) {
         anyFailure = true;
         this.opts.onError?.(docId, result.error || 'erro desconhecido');
-        if (result.retry !== false) {
+        const newer = this.pending.get(docId);
+        if (result.hold) {
+          // Fica guardado sem timer. Se a pessoa editou durante o await, a edicao
+          // nova ja agendou o proprio flush e o doc nao entra em espera.
+          this.pending.set(docId, newer ? mergeEntry(entry, newer) : entry);
+          if (!newer) this.held.set(docId, result.error || 'erro desconhecido');
+        } else if (result.retry !== false) {
           anyRetry = true;
           // Volta para a fila SEM passar por cima de edicoes feitas durante o await.
-          const newer = this.pending.get(docId);
           this.pending.set(docId, newer ? mergeEntry(entry, newer) : entry);
         }
       }
@@ -250,7 +274,8 @@ export class SaveQueue {
       this.failed = false;
     }
 
-    if (this.pending.size > 0 && this.timer === null) {
+    const waiting = [...this.pending.keys()].some((id) => !this.held.has(id));
+    if (waiting && this.timer === null) {
       this.schedule(anyRetry ? this.opts.retryMs : this.opts.delayMs);
     }
     this.emit();
