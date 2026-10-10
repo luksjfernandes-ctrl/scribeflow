@@ -60,9 +60,10 @@ import { StatisticsModal } from './components/StatisticsModal';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { supabase, supabaseUrl, supabaseAnonKey } from './lib/supabase';
-import { DocBase, appendLostToNotes, baseFromRow, mergeMetadata, resolveConflict, restorePlan } from './lib/conflict';
+import { DocBase, baseFromRow, restorePlan } from './lib/conflict';
 import { SaveQueue, SaveStatus, DocFieldUpdates, isContestedPayload, mergeServerDocs, shouldRefetchOnRealtime, unloadVersionFilter, writtenDuringFetch } from './lib/persistence';
 import { readDrafts, recoverySnapshot, removeDraft, saveDraft } from './lib/drafts';
+import { makeDocWriter } from './lib/docWriter';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
@@ -76,7 +77,7 @@ import { useStructuralFolders, getStructuralFolder } from './hooks/useStructural
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
 import { isRecoveryUrl } from './lib/password';
-import { LIMITS, SESSION_LOST, isLimitError, limitMessage, refusedMessage } from './lib/limits';
+import { LIMITS, isLimitError, limitMessage, refusedMessage } from './lib/limits';
 
 /** Lido no carregamento, antes de o supabase-js consumir o hash do link de recuperação. */
 const OPENED_FROM_RECOVERY_LINK = typeof window !== 'undefined' && isRecoveryUrl(window.location.hash);
@@ -223,113 +224,31 @@ export default function App() {
   };
   const [saveQueue] = useState(() => new SaveQueue({
     getDoc: (id) => docsRef.current.find(d => d.id === id),
-    write: async (docId, projectId, payload) => {
-      // O supabase-js devolve { error } em vez de lancar, e um update barrado
-      // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
-      const update = (body: Record<string, unknown>, expectedAt?: number) => {
+    // A gravacao em si mora em lib/docWriter.ts (testada com duas abas em
+    // tests/duas-abas.test.ts); aqui so se liga ao Supabase e ao estado.
+    write: makeDocWriter({
+      update: (docId, projectId, body, expectedAt) => {
         let q = supabase.from('docs').update(body).eq('id', docId).eq('project_id', projectId);
         if (expectedAt !== undefined) q = q.eq('updated_at', expectedAt);
         return q.select('id');
-      };
-      // Limite do banco (lib/limits.ts): a fila guarda a edicao sem reenviar a
-      // cada 5 s, porque a mesma gravacao seria recusada de novo.
-      const failure = (error: { code?: string; message: string }) =>
-        isLimitError(error) ? { ok: false, hold: true, error: error.message } : { ok: false, retry: true, error: error.message };
-      // 0 linhas: doc apagado (descarta) OU sessao perdida, em que a RLS tambem
-      // devolve 0 linhas sem erro (saiu da conta em outra aba, token expirou).
-      // Sem sessao a edicao fica guardada para depois do login, nao vai fora.
-      const zeroRows = async () => {
-        const { data: auth } = await supabase.auth.getSession();
-        return auth.session
-          ? { ok: false, retry: false, error: 'nenhuma linha atualizada' }
-          : { ok: false, hold: true, error: SESSION_LOST };
-      };
-      const stamp = () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', '');
-
-      let base = docBaseRef.current.get(docId);
-      let body = payload;
-      let merged = false;
-      // Metadata local na hora do envio: diz o que a aba mudou enquanto esperava.
-      const sentMeta = (payload.metadata ?? docsRef.current.find(d => d.id === docId)?.metadata) as DocumentMetadata | undefined;
-
-      const finish = () => {
-        markConfirmed(docId);
-        if (base) {
-          docBaseRef.current.set(docId, {
-            updatedAt: typeof body.updated_at === 'number' ? body.updated_at : null,
-            title: typeof body.title === 'string' ? body.title : base.title,
-            content: typeof body.content === 'string' ? body.content : base.content,
-            metadata: (body.metadata as DocumentMetadata | undefined) ?? base.metadata,
-          });
-        }
-        if (merged && body.metadata) {
-          // O estado local recebe o que foi juntado, sem desfazer o que a aba
-          // mudou durante a gravacao (tres vias de novo: base = o que foi enviado).
-          const written = body.metadata as DocumentMetadata;
-          setDocs(curr => curr.map(d => {
-            if (d.id !== docId) return d;
-            const local = mergeMetadata(sentMeta, d.metadata, written);
-            return { ...d, metadata: appendLostToNotes(local.merged, local.lost, stamp()) };
-          }));
-        }
-        return { ok: true };
-      };
-
-      // Corpo, titulo e metadata: grava so se o banco ainda esta na versao de
-      // onde a aba partiu. Se outra aba gravou no meio, junta e tenta de novo.
-      const contested = isContestedPayload(payload);
-      if (contested && base && base.updatedAt !== null) {
-        for (let attempt = 0; attempt < 3 && base.updatedAt !== null; attempt++) {
-          const { data, error } = await update(body, base.updatedAt);
-          if (error) return failure(error);
-          if (data && data.length > 0) return finish();
-
-          const { data: current, error: readError } = await supabase
-            .from('docs')
-            .select('title, content, metadata, updated_at')
-            .eq('id', docId)
-            .eq('project_id', projectId)
-            .maybeSingle();
-          if (readError) return { ok: false, retry: true, error: readError.message };
-          if (!current) return zeroRows();
-
-          const r = resolveConflict({
-            base,
-            ours: {
-              title: typeof body.title === 'string' ? body.title : undefined,
-              content: typeof body.content === 'string' ? body.content : undefined,
-              metadata: body.metadata as DocumentMetadata | undefined,
-            },
-            current,
-            snapshotId: crypto.randomUUID(),
-            now: Date.now(),
-            stamp: stamp(),
-          });
-          body = { ...body, metadata: r.metadata };
-          merged = true;
-          if (r.snapshot || r.lost.length) {
-            console.warn(`[Save] conflito no doc ${docId}: versão de outra aba guardada (${r.snapshot ? 'snapshot do corpo' : ''}${r.snapshot && r.lost.length ? ', ' : ''}${r.lost.map(l => l.field).join(', ')}).`);
-          }
-          base = {
-            updatedAt: typeof current.updated_at === 'number' ? current.updated_at : null,
-            title: current.title,
-            content: current.content,
-            metadata: current.metadata || {},
-          };
-        }
-      }
-
-      const { data, error } = await update(body);
-      if (error) return failure(error);
-      if (!data || data.length === 0) return zeroRows();
-      // Gravacao sem a disputa (ordem, pasta): a base nao avanca, senao
-      // esconderia uma gravacao da outra aba feita no meio.
-      if (!contested) {
-        markConfirmed(docId);
-        return { ok: true };
-      }
-      return finish();
-    },
+      },
+      read: (docId, projectId) => supabase
+        .from('docs')
+        .select('title, content, metadata, updated_at')
+        .eq('id', docId)
+        .eq('project_id', projectId)
+        .maybeSingle(),
+      hasSession: async () => !!(await supabase.auth.getSession()).data.session,
+      getBase: (docId) => docBaseRef.current.get(docId),
+      setBase: (docId, base) => { docBaseRef.current.set(docId, base); },
+      localMetadata: (docId) => docsRef.current.find(d => d.id === docId)?.metadata,
+      updateLocalMetadata: (docId, fn) => setDocs(curr => curr.map(d => (d.id === docId ? { ...d, metadata: fn(d.metadata) } : d))),
+      markConfirmed,
+      newId: () => crypto.randomUUID(),
+      now: () => Date.now(),
+      stamp: () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
+      warn: (message) => console.warn(message),
+    }),
     onStatus: setSaveStatus,
     onError: (docId, error) => console.error(`[Save] falha ao gravar o doc ${docId}:`, error),
   }));
