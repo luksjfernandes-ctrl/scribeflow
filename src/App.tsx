@@ -75,6 +75,7 @@ import { useStructuralFolders, getStructuralFolder } from './hooks/useStructural
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
 import { isRecoveryUrl } from './lib/password';
+import { limitMessage } from './lib/limits';
 
 /** Lido no carregamento, antes de o supabase-js consumir o hash do link de recuperação. */
 const OPENED_FROM_RECOVERY_LINK = typeof window !== 'undefined' && isRecoveryUrl(window.location.hash);
@@ -170,6 +171,9 @@ export default function App() {
   }, [activeProjectId]);
   const isLocalOperationRef = React.useRef<boolean>(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  // Erro de limite do banco (lib/limits.ts): tentar de novo nao resolve, entao
+  // o indicador diz o motivo em vez de "tentando de novo".
+  const [saveErrorText, setSaveErrorText] = useState<string | null>(null);
   // Indicador de salvamento: hora da última confirmação do banco nesta sessão.
   const prevSaveStatusRef = React.useRef<SaveStatus>('saved');
   useEffect(() => {
@@ -279,8 +283,14 @@ export default function App() {
       if (!contested) return { ok: true };
       return finish();
     },
-    onStatus: setSaveStatus,
-    onError: (docId, error) => console.error(`[Save] falha ao gravar o doc ${docId}:`, error),
+    onStatus: (status) => {
+      setSaveStatus(status);
+      if (status === 'saved') setSaveErrorText(null);
+    },
+    onError: (docId, error) => {
+      console.error(`[Save] falha ao gravar o doc ${docId}:`, error);
+      setSaveErrorText(limitMessage(error));
+    },
   }));
 
   useEffect(() => {
@@ -829,6 +839,8 @@ export default function App() {
         if (reorder) persistOrderUpdates(reorder);
       } catch (e) {
         console.error('Error adding doc:', e);
+        const limit = limitMessage(e instanceof Error ? e.message : (e as { message?: string })?.message);
+        if (limit) alert(limit);
       }
       setTimeout(() => { isLocalOperationRef.current = false; }, 2000);
     } else if (!user) {
@@ -991,7 +1003,7 @@ export default function App() {
 
         if (docsError) {
           console.error('TEMPLATE INSERT ERROR:', docsError);
-          alert('Erro ao criar estrutura do projeto: ' + docsError.message);
+          alert(limitMessage(docsError.message) ?? 'Erro ao criar estrutura do projeto: ' + docsError.message);
         } else if (createdDocs) {
           setDocs(createdDocs as Doc[]);
         }
@@ -1006,7 +1018,7 @@ export default function App() {
       }
     } else {
       console.error('[Supabase] Error creating project:', error);
-      alert('Failed to create project. Error: ' + (error?.message || 'Unknown response'));
+      alert(limitMessage(error?.message) ?? 'Failed to create project. Error: ' + (error?.message || 'Unknown response'));
     }
   };
 
@@ -1368,6 +1380,7 @@ export default function App() {
       const { error } = await supabase.from('projects').update({ settings: updatedSettings }).eq('id', project.id);
       if (error) {
         console.error('[Supabase] Erro ao gravar os ajustes do projeto:', error.message);
+        setSaveErrorText(limitMessage(error.message));
         setSaveStatus('error');
       }
     }
@@ -1745,6 +1758,7 @@ export default function App() {
                             status={saveStatus}
                             online={isOnline}
                             unsaved={saveStatus !== 'saved'}
+                            errorText={saveErrorText}
                             savedAt={lastSaved ?? (docBaseRef.current.get(selectedDoc.id)?.updatedAt ? new Date(docBaseRef.current.get(selectedDoc.id)!.updatedAt!) : null)}
                             onSave={() => handleSave(false)}
                           />
