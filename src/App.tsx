@@ -866,7 +866,7 @@ export default function App() {
         const docWithProjectId = { ...newDoc, project_id: activeProjectId };
         const { data: insertedRows, error } = await supabase.from('docs').insert(docWithProjectId).select('id, title, content, metadata, updated_at');
         if (error) throw error;
-        rememberBases((insertedRows || []) as Doc[]);
+        rememberBases(insertedRows || []);
         const withNew = [...docs, docWithProjectId as Doc];
         const reorder = siblingOf ? planDrop(withNew, newId, siblingOf.id, 'after') : null;
         setDocs(curr => {
