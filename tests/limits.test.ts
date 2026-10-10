@@ -48,6 +48,7 @@ test('os numeros de LIMITS batem com o supabase_schema.sql', () => {
   assert.match(sql, new RegExp(`> ${LIMITS.userTotalMB * 1e6}`))
   assert.match(sql, new RegExp(`quantos > ${LIMITS.docsPerUser}`))
   assert.match(sql, new RegExp(`>= ${LIMITS.projectsPerUser} THEN`))
+  assert.match(sql, new RegExp(`char_length\\(title\\) <= ${LIMITS.titleChars}\\)`))
 })
 
 test('sessao perdida tem mensagem propria', () => {

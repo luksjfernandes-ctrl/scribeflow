@@ -14,6 +14,7 @@ export const LIMITS = {
   userTotalMB: 25,
   projectsPerUser: 100,
   docsPerUser: 20000,
+  titleChars: 1000,
 } as const;
 
 interface DbError {

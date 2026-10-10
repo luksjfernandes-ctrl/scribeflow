@@ -75,7 +75,7 @@ import { useStructuralFolders, getStructuralFolder } from './hooks/useStructural
 import { TrashOrigin, isInTrash, restoreParentId, withoutTrash } from './lib/trash';
 import { Auth } from './components/Auth';
 import { isRecoveryUrl } from './lib/password';
-import { SESSION_LOST, isLimitError, limitMessage, refusedMessage } from './lib/limits';
+import { LIMITS, SESSION_LOST, isLimitError, limitMessage, refusedMessage } from './lib/limits';
 
 /** Lido no carregamento, antes de o supabase-js consumir o hash do link de recuperação. */
 const OPENED_FROM_RECOVERY_LINK = typeof window !== 'undefined' && isRecoveryUrl(window.location.hash);
@@ -783,13 +783,13 @@ export default function App() {
 
   const documentSchema = z.object({
     id: z.string().uuid(),
-    title: z.string().min(1).max(200),
+    title: z.string().min(1).max(LIMITS.titleChars),
     type: z.enum(['text', 'folder', 'trash', 'characters', 'places', 'research'] as const),
     parent_id: z.string().uuid().nullable(),
   });
 
   const updateDocumentSchema = z.object({
-    title: z.string().min(1).max(200).optional(),
+    title: z.string().min(1).max(LIMITS.titleChars).optional(),
     content: z.string().optional(),
     parent_id: z.string().uuid().nullable().optional(),
     metadata: z.any().optional(), // Could be deeper but keeping partial context
