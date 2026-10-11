@@ -34,7 +34,7 @@ export function CompositionSettings({ prefs, onUpdate }: CompositionSettingsProp
   ];
 
   return (
-    <div ref={panelRef} className="fixed bottom-8 right-8 z-50">
+    <div ref={panelRef} className="composition-settings fixed bottom-8 right-8 z-50">
       <button 
         onClick={() => setIsOpen(!isOpen)}
         title="Configurações de foco"

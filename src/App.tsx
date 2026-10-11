@@ -1693,6 +1693,9 @@ export default function App() {
                 <>
                   <button type="button" aria-label="Fechar menu" className="fixed inset-0 z-[70] cursor-default" onClick={() => setIsMobileMenuOpen(false)} />
                   <div className="mobile-more-menu" role="menu">
+                    <button role="menuitem" disabled={!canCompose} onClick={() => { setIsMobileMenuOpen(false); openCompose(); }}>
+                      <PenTool size={16} /> Modo de Foco
+                    </button>
                     <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsQuickSearchOpen(true); }}>
                       <Search size={16} /> Buscar no projeto
                     </button>
