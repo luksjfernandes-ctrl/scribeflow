@@ -20,7 +20,7 @@ export interface ExportOptions {
 
 export class NothingToExportError extends Error {
   constructor() {
-    super('Nenhum documento do Manuscript está marcado para compilar.');
+    super('Nenhum documento do manuscrito está marcado para exportar.');
   }
 }
 

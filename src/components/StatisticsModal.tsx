@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { X, BarChart3 } from 'lucide-react';
 import { Doc } from '../types';
 import { withoutTrash } from '../lib/trash';
+import { labelName, statusName } from '../lib/metadataLabels';
 
 interface StatisticsModalProps {
   isOpen: boolean;
@@ -9,18 +10,9 @@ interface StatisticsModalProps {
   docs: Doc[];
 }
 
-const LABEL_NAMES: Record<string, string> = {
-  none: 'No Label',
-  red: 'Chapter',
-  green: 'Scene',
-  blue: 'Research',
-  yellow: 'Note',
-  orange: 'Note',
-  purple: 'Idea',
-};
-
+// Ingles e portugues: o livro pode estar em qualquer um dos dois.
 const STOP_WORDS = new Set(
-  'the a an and or but of to in on at for with as is are was were be been being it its this that these those i you he she they we him her them his hers their our your my me do does did so if then than too very can will just not no yes from by up out about into over after under above below more most some such only own same again once here there all any each few other into'.split(
+  'que não com uma uns umas para por pelo pela pelos pelas mais como mas foi foram ele ela eles elas seu sua seus suas dos das nos nas aos num numa isso esse essa esses essas este esta estes estas isto aquele aquela são ser ter tem tinha era eram estava havia quando onde muito muita também sem até depois ainda mesmo entre sobre porque então assim tudo nada aqui ali lhe lhes meu minha meus minhas nosso nossa você vocês está estão vai pode tão bem cada qual quem the a an and or but of to in on at for with as is are was were be been being it its this that these those i you he she they we him her them his hers their our your my me do does did so if then than too very can will just not no yes from by up out about into over after under above below more most some such only own same again once here there all any each few other into'.split(
     ' '
   )
 );
@@ -39,7 +31,7 @@ const StatRow =({ label, value, total, color }: { label: string; value: number; 
       <div className="flex justify-between text-xs text-gray-300">
         <span>{label}</span>
         <span className="font-mono text-gray-400">
-          {value.toLocaleString()} <span className="text-gray-500">({pct}%)</span>
+          {value.toLocaleString('pt-BR')} <span className="text-gray-500">({pct}%)</span>
         </span>
       </div>
       <div className="h-1.5 rounded-full bg-black/40 overflow-hidden">
@@ -65,10 +57,10 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
       totalWords += words.length;
       totalChars += text.replace(/\s/g, '').length;
 
-      const status = d.metadata?.status || 'No Status';
+      const status = statusName(d.metadata?.status);
       byStatus[status] = (byStatus[status] || 0) + words.length;
 
-      const label = LABEL_NAMES[d.metadata?.label || 'none'] || 'No Label';
+      const label = labelName(d.metadata?.label);
       byLabel[label] = (byLabel[label] || 0) + words.length;
 
       for (const raw of words) {
@@ -109,7 +101,7 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
       >
         <div className="sticky top-0 flex items-center justify-between p-4 border-b border-[#333] bg-[#222]">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-100">
-            <BarChart3 size={18} className="text-[#5B7A3D]" /> Project Statistics
+            <BarChart3 size={18} className="text-[#5B7A3D]" /> Estatísticas do projeto
           </h2>
           <button onClick={onClose} className="p-1 hover:bg-[#333] rounded-md transition-colors text-gray-400">
             <X size={20} />
@@ -120,12 +112,12 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
           {/* Overview */}
           <div className="grid grid-cols-2 gap-3">
             {[
-              { k: 'Words', v: stats.totalWords.toLocaleString() },
-              { k: 'Characters', v: stats.totalChars.toLocaleString() },
-              { k: 'Documents', v: stats.docCount.toLocaleString() },
-              { k: 'Folders', v: stats.folders.toLocaleString() },
-              { k: 'Avg / Document', v: `${stats.avgPerDoc.toLocaleString()} words` },
-              { k: 'Reading Time', v: `~${stats.readingMins} min` },
+              { k: 'Palavras', v: stats.totalWords.toLocaleString('pt-BR') },
+              { k: 'Caracteres', v: stats.totalChars.toLocaleString('pt-BR') },
+              { k: 'Documentos', v: stats.docCount.toLocaleString('pt-BR') },
+              { k: 'Pastas', v: stats.folders.toLocaleString('pt-BR') },
+              { k: 'Média por documento', v: `${stats.avgPerDoc.toLocaleString('pt-BR')} palavras` },
+              { k: 'Tempo de leitura', v: `~${stats.readingMins} min` },
             ].map((s) => (
               <div key={s.k} className="rounded-lg bg-[#222] border border-[#2e2e2e] px-3 py-2.5">
                 <div className="text-[10px] uppercase tracking-widest text-gray-500">{s.k}</div>
@@ -137,7 +129,7 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
           {/* By status */}
           {stats.byStatus.length > 0 && (
             <div className="space-y-2.5">
-              <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Words by Status</div>
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Palavras por status</div>
               {stats.byStatus.map(([name, val], i) => (
                 <StatRow key={name} label={name} value={val} total={stats.totalWords} color={STATUS_COLORS[i % STATUS_COLORS.length]} />
               ))}
@@ -147,7 +139,7 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
           {/* By label */}
           {stats.byLabel.length > 0 && (
             <div className="space-y-2.5">
-              <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Words by Label</div>
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Palavras por rótulo</div>
               {stats.byLabel.map(([name, val], i) => (
                 <StatRow key={name} label={name} value={val} total={stats.totalWords} color={LABEL_COLORS[i % LABEL_COLORS.length]} />
               ))}
@@ -157,7 +149,7 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
           {/* Word frequency */}
           {stats.topWords.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Most Frequent Words</div>
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Palavras mais usadas</div>
               <div className="flex flex-wrap gap-1.5">
                 {stats.topWords.map(([word, n]) => (
                   <span
@@ -172,7 +164,7 @@ export function StatisticsModal({ isOpen, onClose, docs }: StatisticsModalProps)
           )}
 
           {stats.docCount === 0 && (
-            <p className="text-center text-sm italic text-gray-500 py-6">No text documents yet.</p>
+            <p className="text-center text-sm italic text-gray-500 py-6">Ainda não há documentos de texto.</p>
           )}
         </div>
       </div>

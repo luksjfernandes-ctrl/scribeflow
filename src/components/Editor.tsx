@@ -20,6 +20,7 @@ import { parseEpigraph } from '../lib/epigraph';
 import { LIMITS } from '../lib/limits';
 import { parsePartTitle, suggestsPartTitle } from '../lib/part';
 import { isPart as isPartDoc } from '../lib/binderOrder';
+import { quantos } from '../lib/metadataLabels';
 
 interface EditorProps {
   content: string;
@@ -181,20 +182,20 @@ const FormatBar = ({
     <div
       className={cn('format-bar', compact && 'format-bar-mobile', disabled && 'format-bar-disabled')}
       aria-disabled={disabled}
-      title={disabled ? 'Formatting applies to the body text only' : undefined}
+      title={disabled ? 'A formatação vale só para o corpo do texto' : undefined}
     >
       <select
         className="format-dropdown w-32"
-        title="Paragraph style"
-        aria-label="Paragraph style"
+        title="Estilo do parágrafo"
+        aria-label="Estilo do parágrafo"
         disabled={disabled}
         value={state.block}
         onChange={(e) => setBlock(e.target.value as BlockStyle)}
       >
-        <option value="paragraph">Body</option>
-        <option value="h1">Heading 1</option>
-        <option value="h2">Heading 2</option>
-        <option value="blockquote">Blockquote</option>
+        <option value="paragraph">Corpo</option>
+        <option value="h1">Título 1</option>
+        <option value="h2">Título 2</option>
+        <option value="blockquote">Citação</option>
       </select>
 
       {!compact && (<>
@@ -202,8 +203,8 @@ const FormatBar = ({
 
       <select
         className="format-dropdown w-32"
-        title="Editor display font (does not change the saved text or the export)"
-        aria-label="Editor display font"
+        title="Fonte da tela (não muda o texto salvo nem a exportação)"
+        aria-label="Fonte da tela"
         disabled={disabled}
         value={prefs.font}
         onChange={(e) => onPrefsChange({ ...prefs, font: e.target.value })}
@@ -213,8 +214,8 @@ const FormatBar = ({
 
       <select
         className="format-dropdown w-16"
-        title="Editor display size (does not change the saved text or the export)"
-        aria-label="Editor display size"
+        title="Tamanho da letra na tela (não muda o texto salvo nem a exportação)"
+        aria-label="Tamanho da letra na tela"
         disabled={disabled}
         value={prefs.size}
         onChange={(e) => onPrefsChange({ ...prefs, size: Number(e.target.value) })}
@@ -225,27 +226,27 @@ const FormatBar = ({
 
       <div className="w-px h-4 bg-[#C8C5BD] mx-1" />
 
-      {btn('Bold', state.bold, () => editor.chain().focus().toggleBold().run(), <Bold size={14} />)}
-      {btn('Italic', state.italic, () => editor.chain().focus().toggleItalic().run(), <Italic size={14} />)}
-      {btn('Underline', state.underline, () => editor.chain().focus().toggleUnderline().run(), <UnderlineIcon size={14} />)}
+      {btn('Negrito', state.bold, () => editor.chain().focus().toggleBold().run(), <Bold size={14} />)}
+      {btn('Itálico', state.italic, () => editor.chain().focus().toggleItalic().run(), <Italic size={14} />)}
+      {btn('Sublinhado', state.underline, () => editor.chain().focus().toggleUnderline().run(), <UnderlineIcon size={14} />)}
 
       <div className="w-px h-4 bg-[#C8C5BD] mx-1" />
 
-      {btn('Align left', state.left, () => editor.chain().focus().setTextAlign('left').run(), <AlignLeft size={14} />)}
-      {btn('Align center', state.center, () => editor.chain().focus().setTextAlign('center').run(), <AlignCenter size={14} />)}
-      {btn('Align right', state.right, () => editor.chain().focus().setTextAlign('right').run(), <AlignRight size={14} />)}
-      {btn('Justify', state.justify, () => editor.chain().focus().setTextAlign('justify').run(), <AlignJustify size={14} />)}
+      {btn('Alinhar à esquerda', state.left, () => editor.chain().focus().setTextAlign('left').run(), <AlignLeft size={14} />)}
+      {btn('Centralizar', state.center, () => editor.chain().focus().setTextAlign('center').run(), <AlignCenter size={14} />)}
+      {btn('Alinhar à direita', state.right, () => editor.chain().focus().setTextAlign('right').run(), <AlignRight size={14} />)}
+      {btn('Justificar', state.justify, () => editor.chain().focus().setTextAlign('justify').run(), <AlignJustify size={14} />)}
 
       <div className="w-px h-4 bg-[#C8C5BD] mx-1" />
 
-      {btn('Bulleted list', state.bulletList, () => editor.chain().focus().toggleBulletList().run(), <List size={14} />)}
-      {btn('Numbered list', state.orderedList, () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={14} />)}
-      {btn('Highlight', state.highlight, () => editor.chain().focus().toggleHighlight().run(), <Highlighter size={14} />)}
+      {btn('Lista com marcadores', state.bulletList, () => editor.chain().focus().toggleBulletList().run(), <List size={14} />)}
+      {btn('Lista numerada', state.orderedList, () => editor.chain().focus().toggleOrderedList().run(), <ListOrdered size={14} />)}
+      {btn('Destacar', state.highlight, () => editor.chain().focus().toggleHighlight().run(), <Highlighter size={14} />)}
 
       <div className="w-px h-4 bg-[#C8C5BD] mx-1" />
 
       {btn(
-        state.hasSelection ? 'Add comment to selection' : 'Select text to add a comment',
+        state.hasSelection ? 'Comentar o trecho selecionado' : 'Selecione um trecho para comentar',
         state.comment,
         addComment,
         <MessageSquarePlus size={14} />,
@@ -422,7 +423,7 @@ export function Editor({
           <div className={cn(isPart && 'part-title-wrap')}>
           <textarea
             ref={titleRef}
-            aria-label={isPart ? 'Part title (e.g. Book I – Childhood)' : 'Document title'}
+            aria-label={isPart ? 'Título da parte (ex.: Livro I – Infância)' : 'Título do documento'}
             rows={1}
             maxLength={LIMITS.titleChars}
             value={titleDraft}
@@ -441,7 +442,7 @@ export function Editor({
                 ? cn('part-title-input keep-font', !editingTitle && 'part-title-input-idle')
                 : 'keep-font w-full text-2xl font-serif italic font-bold bg-transparent border-none focus:outline-none placeholder:opacity-30 text-accent-color mb-2 resize-none overflow-hidden'
             }
-            placeholder={isPart ? 'Book I – Childhood' : 'Untitled Document'}
+            placeholder={isPart ? 'Livro I – Infância' : 'Documento sem título'}
           />
           {isPart && !editingTitle && (
             <div
@@ -454,7 +455,7 @@ export function Editor({
             >
               {partTitle.label && <div className="part-label">{partTitle.label}</div>}
               {partTitle.label && <div className="part-rule" />}
-              <div className="part-name">{partTitle.name || 'Untitled Part'}</div>
+              <div className="part-name">{partTitle.name || 'Parte sem título'}</div>
             </div>
           )}
           </div>
@@ -467,7 +468,7 @@ export function Editor({
               ref={subtitleRef}
               rows={1}
               value={subtitle}
-              aria-label="Subtitle or epigraph"
+              aria-label="Subtítulo ou epígrafe"
               onChange={(e) => {
                 onSubtitleChange?.(e.target.value);
                 autosize(e.target);
@@ -475,7 +476,7 @@ export function Editor({
               onFocus={() => setFocusedField('subtitle')}
               onBlur={() => setFocusedField(null)}
               className={cn('epigraph epigraph-input', !editingSubtitle && 'epigraph-input-idle')}
-              placeholder="Write a subtitle or epigraph... (a line starting with — is the attribution)"
+              placeholder="Escreva um subtítulo ou uma epígrafe... (comece com — a linha do autor ou da fonte)"
             />
             {!editingSubtitle && (
               <div
@@ -488,7 +489,7 @@ export function Editor({
                 }}
               >
                 {epigraph.length === 0 ? (
-                  <p className="epigraph-placeholder">Write a subtitle or epigraph...</p>
+                  <p className="epigraph-placeholder">Escreva um subtítulo ou epígrafe...</p>
                 ) : (
                   epigraph.map((line, i) =>
                     line.kind === 'blank' ? (
@@ -510,7 +511,7 @@ export function Editor({
           {isPart && (
             <div className="part-body-toggle">
               <button type="button" onClick={() => setPartBodyOpen((open) => !open)}>
-                {partBodyOpen ? 'Hide text' : partWords > 0 ? `Show text (${partWords} ${partWords === 1 ? 'word' : 'words'})` : 'Add text to this part'}
+                {partBodyOpen ? 'Esconder o texto' : partWords > 0 ? `Mostrar o texto (${partWords} ${partWords === 1 ? 'palavra' : 'palavras'})` : 'Escrever texto nesta parte'}
               </button>
             </div>
           )}
@@ -533,8 +534,8 @@ export function Editor({
       {!isMobile && (
       <div className="h-6 flex items-center justify-between px-3 bg-[#E2DFD8] border-t border-[#B5B2AA] text-[10px] text-[#5A5A5A] font-sans">
         <div className="flex items-center gap-3">
-          <span>{wordCount} words</span>
-          <span>{charCount} characters</span>
+          <span>{quantos(wordCount, 'palavra', 'palavras')}</span>
+          <span>{quantos(charCount, 'caractere', 'caracteres')}</span>
         </div>
         
         <div className="flex items-center gap-2">

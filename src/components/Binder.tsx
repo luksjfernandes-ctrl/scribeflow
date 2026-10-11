@@ -699,11 +699,11 @@ export const Binder: React.FC<BinderProps> = ({
       {/* Project Switcher Header */}
       <div className="p-3 border-b border-[#333] bg-black/10">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Projeto Ativo</span>
+          <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Projeto ativo</span>
           <button 
             onClick={onOpenProjects}
             className="p-1 hover:bg-black/20 rounded transition-colors text-gray-400 group"
-            title="Gerenciar Projetos"
+            title="Gerenciar projetos"
           >
             <ChevronDown className="w-4 h-4 group-hover:text-blue-400" />
           </button>
@@ -755,26 +755,26 @@ export const Binder: React.FC<BinderProps> = ({
 
       <div className="p-3">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="binder-header border-none p-0">Binder</h2>
+          <h2 className="binder-header border-none p-0">Estrutura</h2>
           <div className="flex gap-1">
             <button 
               onClick={() => onAddDoc(null, 'folder')}
               className="macos-btn w-6 h-6"
-              title="Novo Grupo"
+              title="Nova pasta"
             >
               <FolderPlus size={14} />
             </button>
             <button 
               onClick={() => onAddDoc(null, 'text')}
               className="macos-btn w-6 h-6"
-              title="Novo Texto"
+              title="Novo texto"
             >
               <Plus size={14} />
             </button>
             <button
               onClick={onAddPart}
               className="macos-btn w-6 h-6"
-              title="Novo Livro / Parte (depois do item selecionado)"
+              title="Novo livro / parte (depois do item selecionado)"
             >
               <BookMarked size={14} />
             </button>
@@ -784,7 +784,7 @@ export const Binder: React.FC<BinderProps> = ({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8A877F]" size={12} />
           <input 
             type="text" 
-            placeholder="Search..." 
+            placeholder="Buscar..." 
             className="binder-search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -830,10 +830,10 @@ export const Binder: React.FC<BinderProps> = ({
 
       <div className="p-2 border-t border-[#333] flex items-center justify-between bg-black/10">
         <div className="flex gap-0.5">
-          <button onClick={() => onAddDoc(null, 'text')} className="macos-btn w-6 h-6" title="Add Document">
+          <button onClick={() => onAddDoc(null, 'text')} className="macos-btn w-6 h-6" title="Novo texto">
             <Plus size={14} />
           </button>
-          <button onClick={() => onAddDoc(null, 'folder')} className="macos-btn w-6 h-6" title="Add Folder">
+          <button onClick={() => onAddDoc(null, 'folder')} className="macos-btn w-6 h-6" title="Nova pasta">
             <FolderPlus size={14} />
           </button>
         </div>

@@ -3,6 +3,8 @@ build/
 dist/
 coverage/
 .DS_Store
+# Metadados que o macOS grava em discos exFAT (SANDISK)
+._*
 *.log
 .env*
 !.env.example

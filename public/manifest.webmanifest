@@ -1,7 +1,7 @@
 {
   "name": "ScribeFlow",
   "short_name": "ScribeFlow",
-  "description": "Open Source Writing Studio",
+  "description": "Escreva seu livro no navegador",
   "start_url": "/",
   "scope": "/",
   "display": "browser",

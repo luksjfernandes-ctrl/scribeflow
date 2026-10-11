@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Plus, Folder, Trash2, Check, Clock, Pencil } from 'lucide-react';
 import { format } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import { Project } from '../types';
 import { InlineNameInput } from './InlineNameInput';
 
@@ -103,7 +104,7 @@ const ProjectsModal: React.FC<ProjectsModalProps> = ({
                       </div>
                       <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
                         <Clock className="w-3 h-3" />
-                        {format(proj.updated_at || Date.now(), 'dd MMM yyyy')}
+                        {format(proj.updated_at || Date.now(), 'dd MMM yyyy', { locale: ptBR })}
                       </div>
                     </div>
 

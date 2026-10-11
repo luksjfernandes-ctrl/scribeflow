@@ -24,7 +24,7 @@ const ProgressBar = ({ value, target }: { value: number; target: number }) => {
       </div>
       <div className="mt-1 flex justify-between text-xs text-gray-400">
         <span className="font-mono">
-          {value.toLocaleString()} / {target.toLocaleString()} words
+          {value.toLocaleString('pt-BR')} / {target.toLocaleString('pt-BR')} palavras
         </span>
         <span className={done ? 'text-[#5BBA4D] font-bold' : 'text-gray-400'}>{pct}%</span>
       </div>
@@ -67,7 +67,7 @@ export function TargetsModal({
       >
         <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#222]">
           <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-100">
-            <TargetIcon size={18} className="text-[#5B7A3D]" /> Project Targets
+            <TargetIcon size={18} className="text-[#5B7A3D]" /> Metas do projeto
           </h2>
           <button onClick={onClose} className="p-1 hover:bg-[#333] rounded-md transition-colors text-gray-400">
             <X size={20} />
@@ -78,7 +78,7 @@ export function TargetsModal({
           {/* Manuscript target */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Manuscript</span>
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Manuscrito</span>
               <input
                 type="number"
                 min={0}
@@ -93,7 +93,7 @@ export function TargetsModal({
           {/* Session target */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">This Session</span>
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Esta sessão</span>
               <input
                 type="number"
                 min={0}
@@ -108,7 +108,7 @@ export function TargetsModal({
           {/* Deadline */}
           <div className="space-y-2 pt-2 border-t border-[#2a2a2a]">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Deadline</span>
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Prazo</span>
               <input
                 type="date"
                 className="bg-[#222] border border-[#333] rounded-md px-2 py-1 text-sm text-gray-200 focus:outline-none focus:border-[#5B7A3D] [color-scheme:dark]"
@@ -123,15 +123,15 @@ export function TargetsModal({
             {deadlineInfo && (
               <div className="flex items-center justify-between text-sm text-gray-300">
                 <span>
-                  {deadlineInfo.days} day{deadlineInfo.days === 1 ? '' : 's'} left
+                  {deadlineInfo.days === 1 ? 'Falta 1 dia' : `Faltam ${deadlineInfo.days} dias`}
                 </span>
                 <span className="text-gray-400">
                   {remaining > 0 ? (
                     <>
-                      <span className="font-bold text-[#7DA861]">{deadlineInfo.perDay.toLocaleString()}</span> words/day
+                      <span className="font-bold text-[#7DA861]">{deadlineInfo.perDay.toLocaleString('pt-BR')}</span> palavras por dia
                     </>
                   ) : (
-                    <span className="font-bold text-[#5BBA4D]">Target reached 🎉</span>
+                    <span className="font-bold text-[#5BBA4D]">Meta alcançada 🎉</span>
                   )}
                 </span>
               </div>
@@ -144,7 +144,7 @@ export function TargetsModal({
             onClick={onClose}
             className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-md transition-colors"
           >
-            Done
+            Concluir
           </button>
         </div>
       </div>

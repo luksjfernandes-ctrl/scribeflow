@@ -17,7 +17,7 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" onClick={onClose}>
       <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-[101] overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b border-[#333] bg-[#222]">
-          <h2 className="text-lg font-semibold text-gray-100">Project Settings</h2>
+          <h2 className="text-lg font-semibold text-gray-100">Configurações do projeto</h2>
           <button onClick={onClose} className="p-1 hover:bg-[#333] rounded-md transition-colors text-gray-400">
             <X size={20} />
           </button>
@@ -25,14 +25,14 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
         
         <div className="p-4 bg-[#1a1a1a] space-y-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-300">Theme</span>
+            <span className="text-sm font-medium text-gray-300">Tema</span>
             <select 
               className="bg-[#222] border border-[#333] rounded-md px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-[#5B7A3D]"
               value={settings.theme}
               onChange={(e) => onUpdateSettings({ theme: e.target.value as any })}
             >
-              <option value="traditional">Traditional (Light)</option>
-              <option value="dark">Dark Mode</option>
+              <option value="traditional">Claro (tradicional)</option>
+              <option value="dark">Escuro</option>
             </select>
           </div>
 
@@ -50,7 +50,7 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-300">Target Word Count</span>
+            <span className="text-sm font-medium text-gray-300">Meta de palavras do livro</span>
             <input 
               type="number" 
               className="w-24 bg-[#222] border border-[#333] rounded-md px-2 py-1.5 text-sm text-gray-200 text-right focus:outline-none focus:border-[#5B7A3D]"
@@ -60,7 +60,7 @@ export function SettingsModal({ isOpen, onClose, settings, onUpdateSettings }: S
           </div>
           
           <div className="space-y-1.5">
-            <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">SESSION TARGET</div>
+            <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">META DA SESSÃO</div>
             <input 
               type="number" 
               className="w-full bg-[#222] border border-[#333] rounded-md px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-[#5B7A3D]"

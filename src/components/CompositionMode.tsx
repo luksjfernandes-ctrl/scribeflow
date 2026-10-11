@@ -7,6 +7,7 @@ import { motion } from 'motion/react';
 import { CompositionSettings } from './CompositionSettings';
 import { useCompositionPrefs } from '../hooks/useCompositionPrefs';
 import { computeTypewriterScroll } from '../lib/typewriterScroll';
+import { quantos } from '../lib/metadataLabels';
 import '../styles/composition.css';
 
 const typewriterKey = new PluginKey('typewriterScroll');
@@ -132,7 +133,7 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
       {/* Floating Meta (Auto-hiding) */}
       <div className="fixed bottom-10 left-10 opacity-0 hover:opacity-100 transition-opacity duration-700">
         <p className="text-[9px] font-mono text-gray-700 uppercase tracking-widest font-bold">
-          {editor.storage.characterCount.words()} palavras · ScribeFlow Sanctuary
+          {quantos(editor.storage.characterCount.words(), 'palavra', 'palavras')} · ScribeFlow
         </p>
       </div>
     </motion.div>

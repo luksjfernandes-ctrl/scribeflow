@@ -31,11 +31,13 @@ Scrivener is the gold standard for fiction writing software — but it's paid, d
 
 ## Screenshots
 
+The interface is in Brazilian Portuguese. The text on screen is a sample chapter written for these screenshots.
+
 ### Editor
 
 The full writing environment: hierarchical binder on the left, manuscript in the center, and the Inspector on the right with synopsis, label, status and notes per document. Word count and session target live in the footer.
 
-![ScribeFlow editor showing a binder with three chapters, a manuscript page, and the inspector panel](docs/screenshots/editor.jpg)
+![ScribeFlow editor in Portuguese: the binder (Estrutura) with three chapters, the chapter page, and the Inspector (Detalhes) with synopsis, label and notes](docs/screenshots/editor.jpg)
 
 ### Composition Mode
 

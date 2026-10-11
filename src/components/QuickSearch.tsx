@@ -105,7 +105,7 @@ export function QuickSearch({ docs, onSelect, onClose }: QuickSearchProps) {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="Go to document or search text…"
+            placeholder="Ir para um documento ou buscar no texto…"
             className="flex-1 bg-transparent py-3.5 text-[15px] text-[#3A3A3A] outline-none placeholder:text-[#A8A59D]"
           />
           <kbd className="text-[10px] text-[#A8A59D] border border-black/10 rounded px-1.5 py-0.5">esc</kbd>
@@ -113,7 +113,7 @@ export function QuickSearch({ docs, onSelect, onClose }: QuickSearchProps) {
 
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto scrivener-scrollbar py-1">
           {results.length === 0 && (
-            <div className="px-4 py-8 text-center text-[13px] italic text-[#8A877F]">No documents found.</div>
+            <div className="px-4 py-8 text-center text-[13px] italic text-[#8A877F]">Nenhum documento encontrado.</div>
           )}
           {results.map((doc, i) => {
             const synopsis = doc.metadata?.synopsis || '';
@@ -140,7 +140,7 @@ export function QuickSearch({ docs, onSelect, onClose }: QuickSearchProps) {
               >
                 <span className={i === active ? 'opacity-90' : 'text-[#5A5A5A]'}>{getDocIcon(doc)}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium">{doc.title || 'Untitled'}</span>
+                  <span className="block truncate text-[13px] font-medium">{doc.title || 'Sem título'}</span>
                   {preview && (
                     <span
                       className={`block truncate text-[11px] ${i === active ? 'text-white/70' : 'text-[#8A877F]'}`}

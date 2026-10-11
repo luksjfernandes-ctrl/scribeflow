@@ -28,9 +28,9 @@ export function CompositionSettings({ prefs, onUpdate }: CompositionSettingsProp
   }, [isOpen]);
 
   const FONTS = [
-    { label: 'Serif (Santuário)', value: 'serif' },
-    { label: 'Sans-serif (Moderno)', value: 'system-ui' },
-    { label: 'Monospaced (Draft)', value: 'monospace' },
+    { label: 'Serifada (Santuário)', value: 'serif' },
+    { label: 'Sem serifa (Moderna)', value: 'system-ui' },
+    { label: 'Monoespaçada (Rascunho)', value: 'monospace' },
   ];
 
   return (
@@ -102,7 +102,7 @@ export function CompositionSettings({ prefs, onUpdate }: CompositionSettingsProp
               <div className="space-y-3">
                 <div className="flex justify-between text-[11px] font-mono uppercase tracking-widest text-gray-400">
                   <span>Altura da Linha</span>
-                  <span className="text-[#B8A04A] font-bold">{prefs.lineHeight}</span>
+                  <span className="text-[#B8A04A] font-bold">{prefs.lineHeight.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</span>
                 </div>
                 <input 
                   type="range"

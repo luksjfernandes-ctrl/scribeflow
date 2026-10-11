@@ -40,7 +40,7 @@ export const needsConflictSnapshot = (baseContent: string, currentContent: strin
 export const conflictSnapshot = (title: string, content: string, id: string, now: number): Snapshot => ({
   id,
   timestamp: now,
-  title: `${title || 'Untitled'} (versão de outra aba)`,
+  title: `${title || 'Sem título'} (versão de outra aba)`,
   content,
 });
 
@@ -73,7 +73,7 @@ export const restorePlan = (
   backupId: string,
   now: number,
 ): { title: string; content: string; snapshots: Snapshot[] } => {
-  const base = plainTitle(current.title) || 'Untitled';
+  const base = plainTitle(current.title) || 'Sem título';
   const alreadySaved = current.snapshots.some((s) => s.content === current.content);
   const snapshots = alreadySaved
     ? current.snapshots
