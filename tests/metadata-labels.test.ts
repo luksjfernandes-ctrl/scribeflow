@@ -64,3 +64,16 @@ test('interface sem os textos em ingles que foram traduzidos', () => {
 test('a pagina declara portugues', () => {
   assert.match(readFileSync('index.html', 'utf8'), /<html lang="pt-BR">/)
 })
+
+test('a imagem da previa do link existe em public/ com o tamanho declarado', () => {
+  const html = readFileSync('index.html', 'utf8')
+  const url = html.match(/<meta property="og:image" content="([^"]+)"/)?.[1]
+  assert.equal(url, 'https://scribeflow-psi.vercel.app/og.jpg')
+  const jpg = readFileSync('public/og.jpg')
+  // Marcador SOF do JPEG: altura e largura em 16 bits depois de FFC0/FFC2.
+  const sof = jpg.findIndex((b, i) => b === 0xff && (jpg[i + 1] === 0xc0 || jpg[i + 1] === 0xc2))
+  assert.ok(sof > 0)
+  assert.deepEqual([jpg.readUInt16BE(sof + 7), jpg.readUInt16BE(sof + 5)], [1200, 630])
+  assert.match(html, /og:image:width" content="1200"/)
+  assert.match(html, /og:image:height" content="630"/)
+})
