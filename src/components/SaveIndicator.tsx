@@ -29,7 +29,7 @@ export function SaveIndicator({ onSave, ...state }: SaveIndicatorProps) {
     <div className="save-indicator" data-tone={tone}>
       <span className="save-indicator-status" role="status" aria-live="polite">
         <Icon size={13} className={cn(tone === 'busy' && 'animate-spin')} aria-hidden="true" />
-        <span className="truncate">{text}</span>
+        <span className="truncate" title={text}>{text}</span>
       </span>
       <button
         type="button"

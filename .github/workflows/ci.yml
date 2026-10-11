@@ -16,6 +16,12 @@ on:
     branches: [main]
   pull_request:
 
+# O token do workflow so le o repositorio. Sem isso, o escopo dependeria da
+# configuracao do repo, e um passo comprometido (ex.: dependencia maliciosa no
+# npm ci) poderia escrever no repositorio publico.
+permissions:
+  contents: read
+
 # Push novo no mesmo branch cancela a run anterior.
 concurrency:
   group: ci-${{ github.ref }}
@@ -42,6 +48,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      # Cobre a autorizacao do /api/keep-alive (PR #19).
+      # Cobre a autorizacao do /api/keep-alive (PR #19) e, desde 09/10/2026, a
+      # RLS entre contas e os limites por usuario do supabase_schema.sql
+      # (tests/schema-seguranca.test.ts, num Postgres em memoria).
       - name: Testes
         run: npm test
