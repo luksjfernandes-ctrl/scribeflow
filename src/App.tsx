@@ -768,7 +768,7 @@ export default function App() {
     type: DocumentType,
     opts: { asPart?: boolean; afterId?: string | null } = {},
   ) => {
-    // Texto não tem filhos visíveis no fluxo normal: "New Text" sobre um texto
+    // Texto não tem filhos visíveis no fluxo normal: "Novo texto" sobre um texto
     // cria o novo item logo DEPOIS dele, como irmão, e não escondido dentro.
     // `afterId` pede isso explicitamente (Novo Livro/Parte: mesmo nível, logo depois).
     const clickedDoc = parent_id ? docs.find(d => d.id === parent_id) : undefined;
@@ -787,9 +787,9 @@ export default function App() {
     const newDoc: Doc = {
       id: newId,
       title: opts.asPart ? 'Novo Livro' :
-             type === 'folder' ? 'New Folder' : 
-             type === 'characters' ? 'New Character' : 
-             type === 'places' ? 'New Setting' : 'New Document',
+             type === 'folder' ? 'Nova pasta' :
+             type === 'characters' ? 'Novo personagem' :
+             type === 'places' ? 'Novo lugar' : 'Novo documento',
       content: '',
       type,
       parent_id: final_parent_id,

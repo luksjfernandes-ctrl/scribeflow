@@ -3,7 +3,7 @@ import { Doc } from '../types';
 import { getDocIcon } from '../utils/getDocIcon';
 import { LABEL_COLORS } from '../constants';
 import { outlineWords } from '../lib/tree';
-import { LABEL_OPTIONS, STATUS_OPTIONS } from '../lib/metadataLabels';
+import { LABEL_OPTIONS, STATUS_OPTIONS, quantos } from '../lib/metadataLabels';
 
 interface OutlinerProps {
   docs: Doc[];
@@ -113,7 +113,7 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
                       <span className="text-[10px] font-mono text-on-surface-variant/60 w-8 text-right">{pct}%</span>
                     </div>
                   ) : (
-                    <span className="text-[11px] font-mono text-on-surface-variant/50">{words} palavras</span>
+                    <span className="text-[11px] font-mono text-on-surface-variant/50">{quantos(words, 'palavra', 'palavras')}</span>
                   )}
                 </td>
                 <td className="p-2 border-r border-[#E2DFD8] text-right">

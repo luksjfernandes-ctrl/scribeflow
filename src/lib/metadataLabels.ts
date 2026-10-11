@@ -21,6 +21,17 @@ export const LABEL_OPTIONS = [
   { value: 'yellow', label: 'Nota' },
 ] as const;
 
+/**
+ * Tipos de secao. 'Part' e o que faz um texto virar Livro/Parte (isPart, na
+ * estrutura e na exportacao): por isso o Inspector oferece uma lista, e nao um
+ * campo livre onde "Parte" gravaria um valor que o app nao reconhece.
+ */
+export const SECTION_OPTIONS = [
+  { value: 'Scene', label: 'Cena' },
+  { value: 'Part', label: 'Livro / Parte' },
+  { value: 'Heading', label: 'Título' },
+] as const;
+
 /** Cores que nao estao no menu mas podem vir de livros antigos (LABEL_COLORS). */
 const LEGACY_LABELS: Record<string, string> = { orange: 'Nota', purple: 'Ideia' };
 
@@ -37,3 +48,13 @@ export const statusName = (value: string | null | undefined): string =>
 /** Nome do rotulo na tela; sem rotulo ou cor desconhecida vira "Sem rótulo". */
 export const labelName = (value: string | null | undefined): string =>
   (value && LABEL_NAMES[value]) || LABEL_NAMES.none;
+
+const SECTION_NAMES: Record<string, string> = Object.fromEntries(SECTION_OPTIONS.map((o) => [o.value, o.label]));
+
+/** Nome do tipo de secao na tela; valor desconhecido aparece como esta gravado. */
+export const sectionName = (value: string | null | undefined): string =>
+  !value ? 'Sem tipo' : SECTION_NAMES[value] ?? value;
+
+/** "1 palavra", "2 palavras", "1.234 palavras". */
+export const quantos = (n: number, singular: string, plural: string): string =>
+  `${n.toLocaleString('pt-BR')} ${n === 1 ? singular : plural}`;

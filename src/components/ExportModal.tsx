@@ -22,7 +22,7 @@ export function ExportModal({ isOpen, onClose, onExport }: ExportModalProps) {
   const formats = [
     { id: 'pdf', name: 'Documento PDF', icon: <FileText size={20} className="text-red-500" />, ext: '.pdf' },
     { id: 'docx', name: 'Microsoft Word', icon: <FileType size={20} className="text-blue-500" />, ext: '.docx' },
-    { id: 'rtf', name: 'Rich Text (RTF)', icon: <FileCode size={20} className="text-gray-500" />, ext: '.rtf' },
+    { id: 'rtf', name: 'Texto formatado (RTF)', icon: <FileCode size={20} className="text-gray-500" />, ext: '.rtf' },
     { id: 'epub', name: 'Livro digital ePub', icon: <Download size={20} className="text-green-500" />, ext: '.epub' },
     { id: 'txt', name: 'Texto simples', icon: <FileText size={20} className="text-gray-400" />, ext: '.txt' },
   ];

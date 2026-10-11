@@ -102,7 +102,7 @@ export function CompositionSettings({ prefs, onUpdate }: CompositionSettingsProp
               <div className="space-y-3">
                 <div className="flex justify-between text-[11px] font-mono uppercase tracking-widest text-gray-400">
                   <span>Altura da Linha</span>
-                  <span className="text-[#B8A04A] font-bold">{prefs.lineHeight}</span>
+                  <span className="text-[#B8A04A] font-bold">{prefs.lineHeight.toLocaleString('pt-BR', { minimumFractionDigits: 1 })}</span>
                 </div>
                 <input 
                   type="range"

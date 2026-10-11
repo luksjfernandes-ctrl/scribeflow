@@ -2,19 +2,60 @@ import { strict as assert } from 'node:assert'
 import { readFileSync, readdirSync } from 'node:fs'
 import { test } from 'node:test'
 import { LABEL_COLORS } from '../src/constants.ts'
-import { LABEL_OPTIONS, STATUS_OPTIONS, labelName, statusName } from '../src/lib/metadataLabels.ts'
+import { isPart } from '../src/lib/binderOrder.ts'
+import {
+  LABEL_OPTIONS,
+  SECTION_OPTIONS,
+  STATUS_OPTIONS,
+  labelName,
+  quantos,
+  sectionName,
+  statusName,
+} from '../src/lib/metadataLabels.ts'
+import type { Doc } from '../src/types.ts'
 
 test('os valores gravados continuam os mesmos (os livros antigos dependem deles)', () => {
   assert.deepEqual(STATUS_OPTIONS.map((o) => o.value), ['To Do', 'First Draft', 'Revised Draft', 'Final Draft'])
   assert.deepEqual(LABEL_OPTIONS.map((o) => o.value), ['none', 'red', 'green', 'blue', 'yellow'])
+  assert.deepEqual(SECTION_OPTIONS.map((o) => o.value), ['Scene', 'Part', 'Heading'])
 })
 
 test('todo status e toda cor de rotulo tem nome em portugues', () => {
   for (const o of STATUS_OPTIONS) assert.notEqual(statusName(o.value), o.value, o.value)
-  for (const cor of Object.keys(LABEL_COLORS)) assert.notEqual(labelName(cor), cor, cor)
+  // Nome exato por cor: o fallback "Sem rótulo" tambem difere da cor, entao
+  // so comparar com a propria cor nao pegaria um mapeamento apagado.
+  const esperado: Record<string, string> = {
+    none: 'Sem rótulo', red: 'Capítulo', orange: 'Nota', yellow: 'Nota',
+    green: 'Cena', blue: 'Pesquisa', purple: 'Ideia',
+  }
+  assert.deepEqual(Object.keys(LABEL_COLORS).sort(), Object.keys(esperado).sort())
+  for (const cor of Object.keys(LABEL_COLORS)) assert.equal(labelName(cor), esperado[cor], cor)
   assert.equal(statusName('First Draft'), 'Primeiro rascunho')
-  assert.equal(labelName('red'), 'Capítulo')
-  assert.equal(labelName('purple'), 'Ideia')
+})
+
+test('tipo de secao: a opcao "Livro / Parte" grava o valor que o app reconhece como parte', () => {
+  const parte = SECTION_OPTIONS.find((o) => o.label === 'Livro / Parte')
+  const doc = { type: 'text', metadata: { section_type: parte?.value } } as unknown as Doc
+  assert.equal(isPart(doc), true)
+  assert.equal(sectionName('Scene'), 'Cena')
+  assert.equal(sectionName('Heading'), 'Título')
+  // Valor fora da lista (livro antigo) aparece como esta gravado, sem sumir.
+  assert.equal(sectionName('Capítulo'), 'Capítulo')
+  assert.equal(sectionName(undefined), 'Sem tipo')
+})
+
+test('contadores no singular quando a quantidade e 1', () => {
+  assert.equal(quantos(1, 'palavra', 'palavras'), '1 palavra')
+  assert.equal(quantos(0, 'palavra', 'palavras'), '0 palavras')
+  assert.equal(quantos(1234, 'caractere', 'caracteres'), '1.234 caracteres')
+})
+
+test('novos itens nascem com titulo em portugues', () => {
+  const app = readFileSync('src/App.tsx', 'utf8')
+  for (const t of ['New Document', 'New Folder', 'New Character', 'New Setting']) {
+    assert.doesNotMatch(app, new RegExp(`['"\`]${t}['"\`]`), t)
+  }
+  for (const t of ['Nova pasta', 'Novo personagem', 'Novo lugar', 'Novo documento']) assert.match(app, new RegExp(`'${t}'`), t)
 })
 
 test('valor desconhecido nao some: status aparece como esta, rotulo vira "Sem rótulo"', () => {

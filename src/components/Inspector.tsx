@@ -15,7 +15,7 @@ import { Doc, Snapshot, Bookmark, Keyword, Comment } from '../types';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { safeUrl } from '../utils/sanitize';
-import { LABEL_OPTIONS, STATUS_OPTIONS } from '../lib/metadataLabels';
+import { LABEL_OPTIONS, SECTION_OPTIONS, STATUS_OPTIONS, quantos, sectionName } from '../lib/metadataLabels';
 
 export type InspectorTab = 'notes' | 'bookmarks' | 'metadata' | 'snapshots' | 'comments';
 
@@ -374,12 +374,19 @@ export function Inspector({
             {/* Section type + target */}
             <div>
               <div className="inspector-section-header">TIPO DE SEÇÃO</div>
-              <input
+              <select
                 className="inspector-dropdown"
-                value={metadata.section_type}
+                value={metadata.section_type ?? ''}
                 onChange={(e) => onUpdateMetadata(doc.id, { section_type: e.target.value })}
-                placeholder="Cena, capítulo…"
-              />
+              >
+                {/* Valor fora da lista (livro antigo) continua visivel e selecionado. */}
+                {!SECTION_OPTIONS.some((o) => o.value === metadata.section_type) && (
+                  <option value={metadata.section_type ?? ''}>{sectionName(metadata.section_type)}</option>
+                )}
+                {SECTION_OPTIONS.filter((o) => o.value !== 'Part' || doc.type === 'text' || metadata.section_type === 'Part').map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
 
             <div>
@@ -407,7 +414,7 @@ export function Inspector({
                         />
                       </div>
                       <div className="mt-1 flex justify-between text-[10px] text-text-secondary">
-                        <span>{words} palavras</span>
+                        <span>{quantos(words, 'palavra', 'palavras')}</span>
                         <span>{pct}%</span>
                       </div>
                     </div>
@@ -504,7 +511,7 @@ export function Inspector({
                     <div className="min-w-0">
                       <div className="truncate text-[12px] font-medium text-[#3A3A3A]">{snap.title}</div>
                       <div className="text-[10px] text-text-secondary">
-                        {format(snap.timestamp, 'd MMM yyyy · HH:mm', { locale: ptBR })} · {wordCount(snap.content)} palavras
+                        {format(snap.timestamp, 'd MMM yyyy · HH:mm', { locale: ptBR })} · {quantos(wordCount(snap.content), 'palavra', 'palavras')}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">

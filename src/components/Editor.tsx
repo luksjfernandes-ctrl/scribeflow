@@ -20,6 +20,7 @@ import { parseEpigraph } from '../lib/epigraph';
 import { LIMITS } from '../lib/limits';
 import { parsePartTitle, suggestsPartTitle } from '../lib/part';
 import { isPart as isPartDoc } from '../lib/binderOrder';
+import { quantos } from '../lib/metadataLabels';
 
 interface EditorProps {
   content: string;
@@ -475,7 +476,7 @@ export function Editor({
               onFocus={() => setFocusedField('subtitle')}
               onBlur={() => setFocusedField(null)}
               className={cn('epigraph epigraph-input', !editingSubtitle && 'epigraph-input-idle')}
-              placeholder="Escreva um subtítulo ou epígrafe... (a linha que começa com — é o autor)"
+              placeholder="Escreva um subtítulo ou uma epígrafe... (comece com — a linha do autor ou da fonte)"
             />
             {!editingSubtitle && (
               <div
@@ -533,8 +534,8 @@ export function Editor({
       {!isMobile && (
       <div className="h-6 flex items-center justify-between px-3 bg-[#E2DFD8] border-t border-[#B5B2AA] text-[10px] text-[#5A5A5A] font-sans">
         <div className="flex items-center gap-3">
-          <span>{wordCount} palavras</span>
-          <span>{charCount} caracteres</span>
+          <span>{quantos(wordCount, 'palavra', 'palavras')}</span>
+          <span>{quantos(charCount, 'caractere', 'caracteres')}</span>
         </div>
         
         <div className="flex items-center gap-2">
