@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { measureAppViewport } from '../lib/viewport';
+import { measureAppViewport, type AppViewport } from '../lib/viewport';
 
 /** No celular, prende a raiz do app à área visível (visualViewport): com o
  *  teclado aberto a raiz encolhe e acompanha o deslocamento do iOS, então a barra
@@ -19,9 +19,11 @@ export function useVisualViewport(enabled: boolean) {
     }
     const vv = window.visualViewport;
     let frame = 0;
+    let previous: AppViewport | undefined;
     const apply = () => {
       frame = 0;
-      const m = measureAppViewport(window.innerHeight, vv);
+      const m = measureAppViewport(window.innerHeight, vv, previous);
+      previous = m;
       root.style.setProperty('--app-height', `${m.height}px`);
       root.style.setProperty('--app-offset-top', `${m.offsetTop}px`);
       if (m.keyboardOpen) root.dataset.keyboard = 'open';

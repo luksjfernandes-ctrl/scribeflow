@@ -1,10 +1,12 @@
 /** Largura abaixo da qual o app vira uma coluna por vez (celular). */
 export const MOBILE_MAX_WIDTH = 767;
-export const MOBILE_QUERY = `(max-width: ${MOBILE_MAX_WIDTH}px)`;
+// Um iPhone deitado passa de 767px, mas continua sem espaço para três painéis.
+export const MOBILE_QUERY = `(max-width: ${MOBILE_MAX_WIDTH}px), (max-width: 1023px) and (max-height: 500px) and (pointer: coarse)`;
 
 export interface VisualViewportLike {
   height: number;
   offsetTop: number;
+  scale?: number;
 }
 
 export interface AppViewport {
@@ -19,8 +21,18 @@ export interface AppViewport {
 /** Mede a área visível. No iOS o teclado não encolhe o layout (innerHeight fica
  *  igual); só a visualViewport encolhe e desloca. Seguimos a visualViewport para
  *  que a barra de formatação fique logo acima do teclado e nada pule. */
-export function measureAppViewport(innerHeight: number, vv: VisualViewportLike | null | undefined): AppViewport {
-  if (!vv || !(vv.height > 0)) return { height: innerHeight, offsetTop: 0, keyboardOpen: false };
+export function measureAppViewport(
+  innerHeight: number,
+  vv: VisualViewportLike | null | undefined,
+  previous?: AppViewport,
+): AppViewport {
+  const fallback = previous ?? { height: innerHeight, offsetTop: 0, keyboardOpen: false };
+  if (!vv) return { height: innerHeight, offsetTop: 0, keyboardOpen: false };
+  // Pinça/pan muda a área VISÍVEL, não o layout. Redimensionar a raiz aqui
+  // reflowa o texto durante o gesto e ainda confunde o zoom com o teclado.
+  // Preserva também o teclado já aberto; retoma a medição ao voltar à escala 1.
+  if (vv.scale !== undefined && (!Number.isFinite(vv.scale) || Math.abs(vv.scale - 1) > 0.01)) return fallback;
+  if (!Number.isFinite(vv.height) || vv.height <= 0 || !Number.isFinite(vv.offsetTop)) return fallback;
   const height = Math.round(vv.height);
   const offsetTop = Math.max(0, Math.round(vv.offsetTop));
   // Barras do Safari variam ~80px; teclado tira bem mais que isso.

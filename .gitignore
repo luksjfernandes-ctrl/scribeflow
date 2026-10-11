@@ -2,6 +2,7 @@ node_modules/
 build/
 dist/
 coverage/
+tests/mobile/results/
 .DS_Store
 # Metadados que o macOS grava em discos exFAT (SANDISK)
 ._*

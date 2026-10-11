@@ -9,7 +9,7 @@ const matches = () => {
   }
 };
 
-/** Tela estreita (celular): uma coluna por vez, Binder e Inspector como sobreposições. */
+/** Celular, inclusive deitado: uma coluna, Binder e Inspector como sobreposições. */
 export function useIsMobile(): boolean {
   const [isMobile, setIsMobile] = useState(matches);
   useEffect(() => {
