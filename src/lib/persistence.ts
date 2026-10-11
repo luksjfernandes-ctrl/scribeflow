@@ -158,6 +158,26 @@ export class SaveQueue {
     return sent;
   }
 
+  /**
+   * Tira da fila tudo o que esta pendente (inclusive o guardado) e devolve o que
+   * seria gravado. Para a troca de conta: a edicao vira rascunho no navegador
+   * (lib/drafts.ts) em vez de ser enviada com a sessao de outra pessoa ou
+   * descartada. O que esta em voo termina sozinho.
+   */
+  takeAll(): Array<{ docId: string; projectId: string; payload: Record<string, unknown> }> {
+    this.cancelTimer();
+    const out = [...this.pending].map(([docId, entry]) => ({
+      docId,
+      projectId: entry.projectId,
+      payload: this.buildPayload(docId, entry, this.opts.now()),
+    }));
+    this.pending.clear();
+    this.held.clear();
+    this.failed = false;
+    this.emit();
+    return out;
+  }
+
   /** Ha algo que ainda nao foi confirmado pelo banco? */
   hasUnsaved(): boolean {
     return this.pending.size > 0 || this.inflight.size > 0;
@@ -166,6 +186,11 @@ export class SaveQueue {
   /** Campos do doc com edicao local ainda nao confirmada (pendente ou em voo). */
   dirtyFields(docId: string): Set<string> {
     return new Set([...entryFieldNames(this.inflight.get(docId)), ...entryFieldNames(this.pending.get(docId))]);
+  }
+
+  /** Os `updated_at` que esta aba gravou neste doc (os ultimos 20). */
+  ownWriteStamps(docId: string): number[] {
+    return [...(this.ownWrites.get(docId) || [])];
   }
 
   /** O evento do realtime e o eco de uma gravacao desta propria aba? */
@@ -227,6 +252,9 @@ export class SaveQueue {
   private async runFlush(includeHeld: boolean): Promise<void> {
     const batch = new Map([...this.pending].filter(([id]) => includeHeld || !this.held.has(id)));
     if (batch.size === 0) {
+      // Nada a gravar e nada guardado: uma gravacao descartada antes (doc apagado)
+      // nao deixa o ⌘S preso em "erro" para sempre.
+      if (this.pending.size === 0 && this.held.size === 0 && this.inflight.size === 0) this.failed = false;
       this.emit();
       return;
     }
@@ -291,11 +319,14 @@ export function mergeServerDocs(
   local: Doc[],
   server: Doc[],
   dirtyFields: (docId: string) => Set<string>,
+  isStale: (docId: string) => boolean = () => false,
 ): Doc[] {
   const localById = new Map(local.map((d) => [d.id, d]));
   return server.map((serverDoc) => {
     const localDoc = localById.get(serverDoc.id);
     if (!localDoc) return serverDoc;
+    // Linha lida antes da propria gravacao confirmada: o local e mais novo.
+    if (isStale(serverDoc.id)) return localDoc;
     const dirty = dirtyFields(serverDoc.id);
     if (dirty.size === 0) return serverDoc;
     const merged: Record<string, unknown> = { ...serverDoc };
@@ -320,4 +351,31 @@ export function shouldRefetchOnRealtime(
     return !isOwnEcho(payload.new.id, payload.new.updated_at);
   }
   return true;
+}
+
+/**
+ * Esta aba confirmou uma gravacao deste doc DEPOIS de o refetch comecar? Entao
+ * o SELECT pode ter lido a versao anterior a ela, e aplicar a resposta apagaria
+ * do editor o que acabou de ser gravado. Compara contadores locais (ordem de
+ * eventos nesta aba), nunca relogios de abas ou aparelhos diferentes.
+ */
+export function writtenDuringFetch(docConfirmSeq: number | undefined, fetchStartSeq: number): boolean {
+  return typeof docConfirmSeq === 'number' && docConfirmSeq > fetchStartSeq;
+}
+
+/** Corpo, titulo ou metadata: os campos que duas abas disputam (gravacao condicional). */
+export function isContestedPayload(payload: Record<string, unknown>): boolean {
+  return 'content' in payload || 'metadata' in payload || 'title' in payload;
+}
+
+/**
+ * Filtro de versao para a gravacao da descarga da pagina (PATCH com keepalive):
+ * so grava se o banco ainda esta na base desta aba ou numa versao que ela mesma
+ * gravou. Se outra aba gravou no meio, o PATCH casa 0 linhas e nao apaga o
+ * texto dela (o beforeunload ja avisou que havia alteracao pendente).
+ * Sem nenhuma versao conhecida, devolve null (grava sem condicao, como antes).
+ */
+export function unloadVersionFilter(baseAt: number | null | undefined, ownStamps: number[]): string | null {
+  const versions = [...new Set([...(typeof baseAt === 'number' ? [baseAt] : []), ...ownStamps])];
+  return versions.length ? `in.(${versions.join(',')})` : null;
 }

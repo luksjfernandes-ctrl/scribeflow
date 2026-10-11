@@ -53,6 +53,7 @@ import {
 } from '../lib/binderOrder';
 import { InlineNameInput } from './InlineNameInput';
 import { isInTrash } from '../lib/trash';
+import { LIMITS } from '../lib/limits';
 import {
   GestureState,
   LONG_PRESS_MS,
@@ -290,6 +291,7 @@ function SortableBinderItem({
             ref={inputRef}
             className="flex-1 bg-white border border-[#5B7A3D] rounded px-1 text-[13px] focus:outline-none"
             value={editTitle}
+            maxLength={LIMITS.titleChars}
             onChange={(e) => setEditTitle(e.target.value)}
             onBlur={handleRename}
             onKeyDown={handleKeyDown}

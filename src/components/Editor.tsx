@@ -17,6 +17,7 @@ import { cn } from '../lib/utils';
 
 import { Doc } from '../types';
 import { parseEpigraph } from '../lib/epigraph';
+import { LIMITS } from '../lib/limits';
 import { parsePartTitle, suggestsPartTitle } from '../lib/part';
 import { isPart as isPartDoc } from '../lib/binderOrder';
 
@@ -423,6 +424,7 @@ export function Editor({
             ref={titleRef}
             aria-label={isPart ? 'Part title (e.g. Book I – Childhood)' : 'Document title'}
             rows={1}
+            maxLength={LIMITS.titleChars}
             value={titleDraft}
             onChange={(e) => {
               setTitleDraft(e.target.value);

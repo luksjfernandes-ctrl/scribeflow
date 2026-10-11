@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { appendLostToNotes, conflictSnapshot, mergeMetadata, needsConflictSnapshot, resolveConflict, theirsOnly } from '../src/lib/conflict.ts'
+import { appendLostToNotes, conflictSnapshot, mergeMetadata, needsConflictSnapshot, resolveConflict, restorePlan, theirsOnly, plainTitle, baseFromRow } from '../src/lib/conflict.ts'
 import type { DocumentMetadata } from '../src/types.ts'
 
 const meta = (m: Partial<DocumentMetadata> = {}): DocumentMetadata => ({
@@ -193,4 +193,35 @@ test('notas disputadas repetidas nao duplicam o texto comum', () => {
   const { merged, lost } = mergeMetadata(base, meta({ notes: 'Nota longa com muito texto. A' }), meta({ notes: 'Nota longa com muito texto. B' }))
   const final = appendLostToNotes(merged, lost, 't')
   assert.equal(final.notes, 'Nota longa com muito texto. A\n\n[Trecho de outra aba · notas · t]\nB')
+})
+
+test('restaurar snapshot guarda o texto atual antes e tira o sufixo de conflito', () => {
+  const antigo = { id: 's1', timestamp: 1, title: 'Capítulo 3 (versão de outra aba)', content: '<p>versão B</p>' }
+  const plan = restorePlan({ title: 'Capítulo 3', content: '<p>texto atual</p>', snapshots: [antigo] }, antigo, 'bk', 99)
+  assert.equal(plan.title, 'Capítulo 3')
+  assert.equal(plan.content, '<p>versão B</p>')
+  assert.equal(plan.snapshots.length, 2)
+  assert.deepEqual(plan.snapshots[0], { id: 'bk', timestamp: 99, title: 'Capítulo 3 (antes de restaurar)', content: '<p>texto atual</p>' })
+  // Snapshot comum mantem o proprio titulo.
+  const comum = restorePlan({ title: 'Novo', content: '', snapshots: [] }, { id: 's2', timestamp: 2, title: 'Velho', content: 'x' }, 'bk2', 3)
+  assert.equal(comum.title, 'Velho')
+})
+
+test('restaurar ida e volta nao empilha sufixo nem duplica backup', () => {
+  const s1 = { id: 's1', timestamp: 1, title: 'Cap (versão de outra aba)', content: '<p>B</p>' }
+  const p1 = restorePlan({ title: 'Cap', content: '<p>A</p>', snapshots: [s1] }, s1, 'bk1', 10)
+  assert.equal(p1.title, 'Cap')
+  const backup = p1.snapshots[0]
+  assert.equal(backup.title, 'Cap (antes de restaurar)')
+  // Volta para o backup: titulo limpo e nenhum backup novo (o texto atual ja e o s1).
+  const p2 = restorePlan({ title: p1.title, content: p1.content, snapshots: p1.snapshots }, backup, 'bk2', 20)
+  assert.equal(p2.title, 'Cap')
+  assert.equal(p2.content, '<p>A</p>')
+  assert.equal(p2.snapshots.length, 2)
+  assert.equal(plainTitle('X (antes de restaurar) (antes de restaurar) (não salvo ao fechar)'), 'X')
+})
+
+test('base da gravacao condicional a partir da linha do banco', () => {
+  assert.deepEqual(baseFromRow({ title: 'T', content: null, metadata: undefined, updated_at: 7 }), { updatedAt: 7, title: 'T', content: '', metadata: {} })
+  assert.equal(baseFromRow({ title: 'T', updated_at: 'x' }).updatedAt, null)
 })

@@ -82,6 +82,18 @@ npm install
 2. Go to **SQL Editor** and run the schema from `supabase_schema.sql`
 3. Go to **Settings → API** and copy your **Project URL** and **anon public key**
 4. Enable **Email/Password** auth in **Authentication → Providers**
+5. **For a public deployment, set up custom SMTP** in **Authentication → Emails →
+   SMTP Settings** (Resend, Brevo, Amazon SES or any SMTP provider), then raise the
+   email limit in **Authentication → Rate Limits**. Supabase's built-in email
+   service only delivers to members of your Supabase team, a couple of emails per
+   hour, so new users would never receive the confirmation link.
+6. In **Authentication → URL Configuration**, set the Site URL to your domain and
+   list only your own exact URLs as redirect URLs. Avoid wildcards on shared
+   domains such as `*.vercel.app`: anyone can create a deployment whose name
+   matches the pattern and receive password-reset links there.
+
+> **Upgrading an existing install?** Run the files in `supabase/migrations/` that
+> are newer than your install, in order, in the SQL Editor. They are idempotent.
 
 ### 3. Configure environment
 
@@ -113,10 +125,15 @@ Environment Variables**:
 ```
 VITE_SUPABASE_URL
 VITE_SUPABASE_ANON_KEY
+CRON_SECRET
 ```
 
-> **Note:** Supabase free-tier projects pause after a period of inactivity. If
-> the app stops loading data, un-pause the project in the Supabase dashboard.
+`CRON_SECRET` is any long random string (for example `openssl rand -hex 32`).
+Vercel sends it to the daily `/api/keep-alive` cron, which pings Supabase so a
+free-tier project doesn't pause from inactivity. The endpoint refuses every call
+without it.
+
+> **Note:** if the project pauses anyway, un-pause it in the Supabase dashboard.
 > The schema in `supabase_schema.sql` is idempotent, so you can safely re-run
 > it after restoring a project.
 
@@ -194,8 +211,25 @@ src/
 - Supabase Auth (email/password)
 - Row Level Security — users only see their own data
 - Real-time sync with optimistic local updates
+- Conditional saves: two tabs or devices editing the same chapter never overwrite
+  each other silently; the other version is kept as a snapshot
+- Per-account limits enforced by the database (2 MB per document, 25 MB and
+  20,000 documents per account, 100 books), so one account can't fill a
+  free-tier database for everyone
 - Zod validation on all mutations
 - Remembers last project on reload
+
+---
+
+## Security
+
+- Report vulnerabilities privately; see [SECURITY.md](SECURITY.md). Please don't
+  open public issues for security problems.
+- The `VITE_SUPABASE_ANON_KEY` shipped to the browser is public by design: the
+  data is protected by Row Level Security, not by keeping that key secret.
+- CI runs `supabase_schema.sql` on an in-memory Postgres and checks that one
+  account can't read or change another's data and that every limit holds
+  (`tests/schema-seguranca.test.ts`).
 
 ---
 

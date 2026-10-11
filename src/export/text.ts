@@ -58,7 +58,10 @@ const rtfRuns = (runs: Run[]): string =>
 
 const RTF_ALIGN = { left: '\\ql', center: '\\qc', right: '\\qr', justify: '\\qj' } as const;
 
-const rtfBlocks = (blocks: Block[], indentTw = 0): string => {
+/** `headingSize: false` dentro de citação: o título não muda o corpo da citação.
+ *  Antes isso era um replace(/\\fs\d+/) no RTF pronto, que também cortava texto
+ *  do usuário com "\fs12" (já escapado como "\\fs12"). */
+const rtfBlocks = (blocks: Block[], indentTw = 0, headingSize = true): string => {
   let out = '';
   let afterHeading = true;
   for (const b of blocks) {
@@ -71,7 +74,7 @@ const rtfBlocks = (blocks: Block[], indentTw = 0): string => {
       }
       case 'heading': {
         const fs = b.level === 1 ? 32 : b.level === 2 ? 28 : 24;
-        out += `{\\pard${RTF_ALIGN[b.align ?? 'left']}\\sb240\\sa120\\keepn\\b\\fs${fs} ${rtfRuns(b.runs)}\\par}\n`;
+        out += `{\\pard${RTF_ALIGN[b.align ?? 'left']}\\sb240\\sa120\\keepn\\b${headingSize ? `\\fs${fs}` : ''} ${rtfRuns(b.runs)}\\par}\n`;
         afterHeading = true;
         break;
       }
@@ -84,7 +87,7 @@ const rtfBlocks = (blocks: Block[], indentTw = 0): string => {
         afterHeading = true;
         break;
       case 'blockquote':
-        out += rtfBlocks(b.children, indentTw + 1134).replace(/\\fs\d+/g, '');
+        out += rtfBlocks(b.children, indentTw + 1134, false);
         afterHeading = true;
         break;
       case 'rule':
