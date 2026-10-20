@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
-import { MOBILE_QUERY } from '../lib/viewport';
+import { isMobileViewport, MOBILE_QUERY } from '../lib/viewport';
 
 const matches = () => {
   try {
-    return typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(MOBILE_QUERY).matches;
+    return typeof window !== 'undefined' && !!window.matchMedia && isMobileViewport(
+      window.innerWidth, window.matchMedia('(pointer: coarse)').matches, window.screen,
+    );
   } catch {
     return false;
   }
@@ -15,10 +17,15 @@ export function useIsMobile(): boolean {
   useEffect(() => {
     if (!window.matchMedia) return;
     const mql = window.matchMedia(MOBILE_QUERY);
-    const onChange = () => setIsMobile(mql.matches);
+    const onChange = () => setIsMobile(matches());
     onChange();
     mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
+    // A rotação pode mudar a tela sem cruzar o limite da consulta de candidatos.
+    window.addEventListener('resize', onChange);
+    return () => {
+      mql.removeEventListener('change', onChange);
+      window.removeEventListener('resize', onChange);
+    };
   }, []);
   return isMobile;
 }

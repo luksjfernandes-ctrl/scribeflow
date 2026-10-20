@@ -31,3 +31,10 @@ teclado e a pinça são eventos de `visualViewport` **injetados**, identificados
 nos nomes dos prints e no JSON. Não comprovam teclado, seleção por alças ou
 zoom físicos do iOS. Safari/PWA instalado, modo standalone e offline continuam
 pendentes de teste no iPhone. O viewport mantém o zoom manual acessível.
+
+Regressão do layout com `interactive-widget=resizes-content`: com Chromium e a
+mesma fixture local, execute `node tests/mobile/layout-check.mjs`.
+`PLAYWRIGHT_MODULE` aceita a instalação externa; `CHROMIUM_PATH` aceita um
+Chromium já instalado. O teste conserva a tela do dispositivo e reduz somente
+a altura da janela, cobrindo tablets de 768, 820 e 1023px e celular com rotação.
+Isso simula o redimensionamento por teclado; não substitui o teste em aparelho.

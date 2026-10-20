@@ -1,7 +1,18 @@
 /** Largura abaixo da qual o app vira uma coluna por vez (celular). */
 export const MOBILE_MAX_WIDTH = 767;
-// Um iPhone deitado passa de 767px, mas continua sem espaço para três painéis.
-export const MOBILE_QUERY = `(max-width: ${MOBILE_MAX_WIDTH}px), (max-width: 1023px) and (max-height: 500px) and (pointer: coarse)`;
+// Consulta de candidatos: o hook também confere a tela física para distinguir
+// celular deitado de tablet. A altura da janela varia com o teclado virtual.
+export const MOBILE_QUERY = `(max-width: ${MOBILE_MAX_WIDTH}px), (max-width: 1023px) and (pointer: coarse)`;
+
+export function isMobileViewport(
+  width: number,
+  coarsePointer: boolean,
+  screen: { width: number; height: number },
+): boolean {
+  if (width <= MOBILE_MAX_WIDTH) return true;
+  const shortSide = Math.min(screen.width, screen.height);
+  return width <= 1023 && coarsePointer && Number.isFinite(shortSide) && shortSide > 0 && shortSide <= 500;
+}
 
 export interface VisualViewportLike {
   height: number;

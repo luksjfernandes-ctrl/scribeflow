@@ -1530,7 +1530,7 @@ textarea {
   user-select: text;
 }
 
-@media (max-width: 767px), (max-width: 1023px) and (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 767px), (max-width: 1023px) and (max-device-width: 500px) and (pointer: coarse), (max-width: 1023px) and (max-device-height: 500px) and (pointer: coarse) {
   /* Raiz presa à área visível (useVisualViewport): com o teclado aberto ela
      encolhe e acompanha o deslocamento do iOS, e a barra de formatação — a
      última faixa da coluna — fica logo acima do teclado. */
@@ -1774,7 +1774,7 @@ textarea {
 }
 .save-indicator-btn:active { background: #E8E5DE; }
 .save-indicator-btn:disabled { opacity: 0.6; }
-@media (max-width: 767px), (max-width: 1023px) and (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 767px), (max-width: 1023px) and (max-device-width: 500px) and (pointer: coarse), (max-width: 1023px) and (max-device-height: 500px) and (pointer: coarse) {
   .save-indicator {
     height: 36px;
     font-size: 13px;
@@ -1816,7 +1816,7 @@ textarea {
   z-index: 99998;
   background: rgba(0, 0, 0, 0.3);
 }
-@media (max-width: 767px), (max-width: 1023px) and (max-height: 500px) and (pointer: coarse) {
+@media (max-width: 767px), (max-width: 1023px) and (max-device-width: 500px) and (pointer: coarse), (max-width: 1023px) and (max-device-height: 500px) and (pointer: coarse) {
   /* Menu de contexto como folha de ações embaixo, com alvos de 44px. */
   .context-menu {
     left: 8px !important;
