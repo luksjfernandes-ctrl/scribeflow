@@ -19,6 +19,25 @@ test('deslocamento negativo (elástico do iOS) vira zero', () => {
   assert.equal(measureAppViewport(659, { height: 659, offsetTop: -12 }).offsetTop, 0)
 })
 
+test('offset residual após rotação não desloca o app sem teclado', () => {
+  assert.deepEqual(measureAppViewport(844, { height: 844, offsetTop: 90, scale: 1 }), {
+    height: 844, offsetTop: 0, keyboardOpen: false,
+  })
+})
+
+test('altura transitória da rotação não simula teclado sem campo em edição', () => {
+  assert.deepEqual(measureAppViewport(844, { height: 390, offsetTop: 90, scale: 1 }, undefined, false), {
+    height: 844, offsetTop: 0, keyboardOpen: false,
+  })
+})
+
+test('sair do editor descarta a geometria do teclado mesmo durante zoom transitório', () => {
+  const keyboard = { height: 350, offsetTop: 80, keyboardOpen: true }
+  assert.deepEqual(measureAppViewport(844, { height: 175, offsetTop: 90, scale: 0.8 }, keyboard, false), {
+    height: 844, offsetTop: 0, keyboardOpen: false,
+  })
+})
+
 test('pinça e pan não redimensionam o texto nem simulam teclado', () => {
   const previous = measureAppViewport(800, { height: 800, offsetTop: 0, scale: 1 })
   assert.deepEqual(measureAppViewport(800, { height: 400, offsetTop: 150, scale: 2 }, previous), previous)

@@ -36,7 +36,9 @@ export function measureAppViewport(
   innerHeight: number,
   vv: VisualViewportLike | null | undefined,
   previous?: AppViewport,
+  editableFocused = true,
 ): AppViewport {
+  if (!editableFocused) return { height: innerHeight, offsetTop: 0, keyboardOpen: false };
   const fallback = previous ?? { height: innerHeight, offsetTop: 0, keyboardOpen: false };
   if (!vv) return { height: innerHeight, offsetTop: 0, keyboardOpen: false };
   // Pinça/pan muda a área VISÍVEL, não o layout. Redimensionar a raiz aqui
@@ -45,8 +47,10 @@ export function measureAppViewport(
   if (vv.scale !== undefined && (!Number.isFinite(vv.scale) || Math.abs(vv.scale - 1) > 0.01)) return fallback;
   if (!Number.isFinite(vv.height) || vv.height <= 0 || !Number.isFinite(vv.offsetTop)) return fallback;
   const height = Math.round(vv.height);
-  const offsetTop = Math.max(0, Math.round(vv.offsetTop));
   // Barras do Safari variam ~80px; teclado tira bem mais que isso.
-  const keyboardOpen = innerHeight - height > 120;
+  // Rotação pode deixar um offset antigo mesmo sem teclado. Só deslocamos
+  // a raiz quando um campo em edição realmente perdeu área para o teclado.
+  const keyboardOpen = editableFocused && innerHeight - height > 120;
+  const offsetTop = keyboardOpen ? Math.max(0, Math.round(vv.offsetTop)) : 0;
   return { height, offsetTop, keyboardOpen };
 }

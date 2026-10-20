@@ -38,3 +38,11 @@ mesma fixture local, execute `node tests/mobile/layout-check.mjs`.
 Chromium já instalado. O teste conserva a tela do dispositivo e reduz somente
 a altura da janela, cobrindo tablets de 768, 820 e 1023px e celular com rotação.
 Isso simula o redimensionamento por teclado; não substitui o teste em aparelho.
+
+Regressão de rotação e toques: `node tests/mobile/rotation-check.mjs`, com as
+mesmas variáveis `PLAYWRIGHT_MODULE`/`CHROMIUM_PATH`. Pode usar WebKit com
+`BROWSER_ENGINE=webkit` quando o motor estiver instalado. Cobre três idas e
+voltas, offset e escala transitórios injetados, botão atingido por hit-test,
+toques em Estrutura/Mais, limpeza de menus e preservação do texto em edição.
+O teste simula as medições do iOS; não reproduz o contêiner WKWebView de um app
+instalado pelo Xcode. Esse contêiner precisa de validação no aparelho.

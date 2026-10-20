@@ -3,12 +3,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 // Playwright é opcional: pode ficar fora do clone para não alterar dependências.
-const { webkit, devices } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const engines = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { devices } = engines;
+const browserEngine = process.env.BROWSER_ENGINE || 'webkit';
 const base = process.env.MOBILE_TEST_URL || 'http://127.0.0.1:4318';
 assert.equal(new URL(base).hostname, '127.0.0.1', 'Teste permitido só no servidor local da fixture');
 const output = path.resolve(process.env.MOBILE_TEST_OUTPUT || 'tests/mobile/results');
 await mkdir(output, { recursive: true });
-const browser = await webkit.launch();
+const browser = await engines[browserEngine].launch(browserEngine === 'chromium' && process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const results = [];
 let lastPage;
 
@@ -105,6 +107,8 @@ try {
     await viewport(page, { height: size.height / 2, offsetTop: 80, scale: 2 });
     assert.deepEqual(await geometry(page), initial, 'Pinça não reorganiza a raiz nem simula teclado');
     await viewport(page, { height: size.height, offsetTop: 0, scale: 1 });
+    // Teclado só deve alterar a raiz quando há um campo realmente em edição.
+    await editor.tap();
     const keyboardHeight = name === 'iphone-deitado' ? 240 : 350;
     await viewport(page, { height: keyboardHeight, offsetTop: 80, scale: 1 });
     const keyboard = await geometry(page);
@@ -157,7 +161,7 @@ try {
     results.push({ name, viewport: size, initial, keyboard, focusStyle, pageErrors: errors, externalHostsBlocked: [...new Set(blocked)], passed: true });
     await context.close();
   }
-  // Também usa o visualViewport NATIVO do WebKit: escrita e rotação sem
+  // Também usa o visualViewport NATIVO do motor: escrita e rotação sem
   // substituir a API. O teclado virtual do aparelho continua fora do ensaio.
   const native = await browser.newContext({ ...devices['iPhone 13'], locale: 'pt-BR' });
   await native.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
@@ -190,8 +194,8 @@ try {
   await page.locator('.app-root').waitFor();
   assert.equal(await page.locator('.app-root.is-mobile').count(), 0);
   await desktop.close();
-  await writeFile(path.join(output, 'results.json'), JSON.stringify({ engine: browser.version(), keyboardAndPinch: 'visualViewport injetado; sem teclado ou pinça reais do iOS', cases: results, nativeViewport: { before: nativeBefore, after: nativeAfter, passed: true }, desktop: 'passou' }, null, 2));
-  console.log(`WebKit: ${results.length} perfis de iPhone + viewport nativo/rotação + desktop passaram.`);
+  await writeFile(path.join(output, 'results.json'), JSON.stringify({ engine: browserEngine, version: browser.version(), keyboardAndPinch: 'visualViewport injetado; sem teclado ou pinça reais do iOS', cases: results, nativeViewport: { before: nativeBefore, after: nativeAfter, passed: true }, desktop: 'passou' }, null, 2));
+  console.log(`${browserEngine}: ${results.length} perfis de iPhone + viewport nativo/rotação + desktop passaram.`);
 } catch (error) {
   if (lastPage && !lastPage.isClosed()) await lastPage.screenshot({ path: path.join(output, 'falha-diagnostico.png') });
   throw error;
