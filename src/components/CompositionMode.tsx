@@ -101,7 +101,7 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
       } as React.CSSProperties}
     >
       {/* Immersive Header (Auto-hiding) */}
-      <div className="fixed top-0 left-0 right-0 p-8 flex items-center justify-between opacity-40 hover:opacity-100 transition-opacity duration-500 z-10 pointer-events-none">
+      <div className="composition-header fixed top-0 left-0 right-0 p-8 flex items-center justify-between opacity-40 hover:opacity-100 transition-opacity duration-500 z-10 pointer-events-none">
         <div className="flex items-center gap-4">
           <h2 className="text-xs font-mono uppercase tracking-[0.3em] text-[#B8A04A]/40">{title}</h2>
         </div>
@@ -118,7 +118,7 @@ export function CompositionMode({ editor, onExit, title }: CompositionModeProps)
 
       {/* Deep Dark Editor Container */}
       <div 
-        className="w-full max-w-[var(--comp-width)] flex-1 pt-[20vh] pb-[60vh] transition-all duration-500"
+        className="composition-writing-area w-full max-w-[var(--comp-width)] flex-1 pt-[20vh] pb-[60vh] transition-all duration-500"
         style={{ fontSize: 'var(--comp-font-size)', lineHeight: 'var(--comp-line-height)', fontFamily: 'var(--comp-font-family)' }}
       >
         <EditorContent 

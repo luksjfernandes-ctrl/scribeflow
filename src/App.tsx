@@ -354,6 +354,21 @@ export default function App() {
   }, [isMobile]);
   const showSplit = isSplit && !isMobile;
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    if (!isMobile) return;
+    // Menus posicionados antes de girar podem ficar fora da tela enquanto seu
+    // backdrop transparente continua interceptando todos os toques.
+    const closeTransientMenus = () => {
+      setIsMobileMenuOpen(false);
+      setContextMenu(null);
+    };
+    window.addEventListener('orientationchange', closeTransientMenus);
+    window.screen.orientation?.addEventListener('change', closeTransientMenus);
+    return () => {
+      window.removeEventListener('orientationchange', closeTransientMenus);
+      window.screen.orientation?.removeEventListener('change', closeTransientMenus);
+    };
+  }, [isMobile]);
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -1693,6 +1708,9 @@ export default function App() {
                 <>
                   <button type="button" aria-label="Fechar menu" className="fixed inset-0 z-[70] cursor-default" onClick={() => setIsMobileMenuOpen(false)} />
                   <div className="mobile-more-menu" role="menu">
+                    <button role="menuitem" disabled={!canCompose} onClick={() => { setIsMobileMenuOpen(false); openCompose(); }}>
+                      <PenTool size={16} /> Modo de Foco
+                    </button>
                     <button role="menuitem" onClick={() => { setIsMobileMenuOpen(false); setIsQuickSearchOpen(true); }}>
                       <Search size={16} /> Buscar no projeto
                     </button>

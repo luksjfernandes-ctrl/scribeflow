@@ -1523,14 +1523,14 @@ html, body {
 /* O texto precisa ser selecionável e editável: user-select:none herdado do
    body faz o iOS não pôr o cursor no editor. */
 .editor-page,
-.editor-page [contenteditable],
+[contenteditable="true"],
 input,
 textarea {
   -webkit-user-select: text;
   user-select: text;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-width: 1023px) and (max-device-width: 500px) and (pointer: coarse), (max-width: 1023px) and (max-device-height: 500px) and (pointer: coarse) {
   /* Raiz presa à área visível (useVisualViewport): com o teclado aberto ela
      encolhe e acompanha o deslocamento do iOS, e a barra de formatação — a
      última faixa da coluna — fica logo acima do teclado. */
@@ -1548,6 +1548,41 @@ textarea {
   textarea:not(.keep-font):not(#\#),
   select:not(#\#) {
     font-size: 16px;
+  }
+  [contenteditable="true"] {
+    font-size: max(16px, 1em);
+  }
+
+  /* Foco compartilha o editor, mas fica fora da página normal. Segue a área
+     útil do teclado, sem transição de tamanho ou margens em vh do desktop. */
+  .composition-overlay {
+    top: var(--app-offset-top, 0px);
+    bottom: auto;
+    height: var(--app-height, 100dvh);
+  }
+  .composition-overlay > .composition-writing-area {
+    padding: 80px 18px calc(var(--app-height, 100dvh) / 2);
+    transition: none;
+  }
+  .composition-overlay > .composition-header {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    padding: 8px 16px;
+    flex-shrink: 0;
+    height: 64px;
+  }
+  .composition-overlay .composition-settings {
+    position: sticky;
+    bottom: 8px;
+    align-self: flex-end;
+    margin: -54px 8px 8px;
+    flex-shrink: 0;
+  }
+  .composition-settings > div {
+    max-width: calc(100vw - 16px);
+    max-height: calc(var(--app-height, 100dvh) - 80px);
+    overflow-y: auto;
   }
 
   .macos-toolbar {
@@ -1739,7 +1774,7 @@ textarea {
 }
 .save-indicator-btn:active { background: #E8E5DE; }
 .save-indicator-btn:disabled { opacity: 0.6; }
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-width: 1023px) and (max-device-width: 500px) and (pointer: coarse), (max-width: 1023px) and (max-device-height: 500px) and (pointer: coarse) {
   .save-indicator {
     height: 36px;
     font-size: 13px;
@@ -1781,7 +1816,7 @@ textarea {
   z-index: 99998;
   background: rgba(0, 0, 0, 0.3);
 }
-@media (max-width: 767px) {
+@media (max-width: 767px), (max-width: 1023px) and (max-device-width: 500px) and (pointer: coarse), (max-width: 1023px) and (max-device-height: 500px) and (pointer: coarse) {
   /* Menu de contexto como folha de ações embaixo, com alvos de 44px. */
   .context-menu {
     left: 8px !important;

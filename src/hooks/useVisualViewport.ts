@@ -1,10 +1,15 @@
 import { useEffect } from 'react';
-import { measureAppViewport } from '../lib/viewport';
+import { measureAppViewport, type AppViewport } from '../lib/viewport';
 
-/** No celular, prende a raiz do app à área visível (visualViewport): com o
- *  teclado aberto a raiz encolhe e acompanha o deslocamento do iOS, então a barra
- *  de formatação (última faixa da coluna do editor) fica logo acima do teclado
- *  e o layout não "dança" ao focar. Publica --app-height e --app-offset-top. */
+const editableFocused = () => {
+  const element = document.activeElement;
+  return element instanceof HTMLElement && (element.isContentEditable || element.matches(
+    'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="hidden"]):not([type="file"]):not([type="color"])',
+  ));
+};
+
+/** Fora da edição com teclado, o CSS (100dvh/top:0) controla a raiz. Isso evita
+ *  conservar altura/offset transitórios do iOS depois de uma rotação. */
 export function useVisualViewport(enabled: boolean) {
   useEffect(() => {
     const root = document.documentElement;
@@ -19,26 +24,56 @@ export function useVisualViewport(enabled: boolean) {
     }
     const vv = window.visualViewport;
     let frame = 0;
+    let settleTimers: ReturnType<typeof setTimeout>[] = [];
+    let previous: AppViewport | undefined;
     const apply = () => {
       frame = 0;
-      const m = measureAppViewport(window.innerHeight, vv);
+      const focused = editableFocused();
+      const m = measureAppViewport(window.innerHeight, window.visualViewport, previous, focused);
+      previous = focused ? m : undefined;
+      if (!m.keyboardOpen) {
+        clear();
+        return;
+      }
       root.style.setProperty('--app-height', `${m.height}px`);
       root.style.setProperty('--app-offset-top', `${m.offsetTop}px`);
-      if (m.keyboardOpen) root.dataset.keyboard = 'open';
-      else delete root.dataset.keyboard;
+      root.dataset.keyboard = 'open';
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(apply);
+    };
+    const rotate = () => {
+      previous = undefined;
+      clear();
+      for (const timer of settleTimers) clearTimeout(timer);
+      // No iOS, orientação e geometria final podem chegar em momentos distintos.
+      const settle = () => {
+        if (!editableFocused() && (!window.visualViewport || window.visualViewport.scale === 1)) {
+          window.scrollTo(0, 0);
+        }
+        schedule();
+      };
+      settle();
+      settleTimers = [100, 300, 600].map(delay => setTimeout(settle, delay));
     };
     apply();
     vv?.addEventListener('resize', schedule);
     vv?.addEventListener('scroll', schedule);
     window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', rotate);
+    window.screen.orientation?.addEventListener('change', rotate);
+    document.addEventListener('focusin', schedule);
+    document.addEventListener('focusout', schedule);
     return () => {
       if (frame) cancelAnimationFrame(frame);
+      for (const timer of settleTimers) clearTimeout(timer);
       vv?.removeEventListener('resize', schedule);
       vv?.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
+      window.removeEventListener('orientationchange', rotate);
+      window.screen.orientation?.removeEventListener('change', rotate);
+      document.removeEventListener('focusin', schedule);
+      document.removeEventListener('focusout', schedule);
       clear();
     };
   }, [enabled]);
