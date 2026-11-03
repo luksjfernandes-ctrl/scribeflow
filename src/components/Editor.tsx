@@ -21,6 +21,7 @@ import { LIMITS } from '../lib/limits';
 import { parsePartTitle, suggestsPartTitle } from '../lib/part';
 import { isPart as isPartDoc } from '../lib/binderOrder';
 import { quantos } from '../lib/metadataLabels';
+import { loadContent } from '../lib/editorContent';
 
 interface EditorProps {
   content: string;
@@ -302,8 +303,9 @@ export function Editor({
   // Set content only when the document changes to prevent bounce-back from autosave
   React.useEffect(() => {
     if (editor) {
-      // Trocar de documento nao e edicao: sem emitUpdate, nao gera gravacao.
-      editor.commands.setContent(content, { emitUpdate: false });
+      // Trocar de documento nao e edicao: nao grava e nao entra no desfazer
+      // (senao ⌘Z traz o documento anterior e grava por cima deste).
+      loadContent(editor, content);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id, editor]);
