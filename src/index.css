@@ -1642,6 +1642,9 @@ textarea {
     z-index: 61;
     width: min(85vw, 320px);
     box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+    /* Lado livre da gaveta, sobre o fundo escurecido, com raio maior; nenhum canto reto. */
+    border-radius: 4px 14px 14px 4px;
+    overflow: hidden;
   }
   .mobile-sheet {
     position: absolute;

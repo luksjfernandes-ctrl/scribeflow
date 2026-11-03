@@ -64,3 +64,12 @@ test('Tabela: o realce da linha tem raio (e o raio vale porque a tabela não é 
   assert.ok(regras('.outliner-row:hover > td:first-child').some((c) => /border-(top|bottom)-left-radius/.test(c)))
   assert.ok(regras('.outliner-row:hover > td:last-child').some((c) => /border-(top|bottom)-right-radius/.test(c)))
 })
+
+test('gaveta do Binder no celular: os cantos do lado livre são arredondados', () => {
+  const corpo = regras('.mobile-drawer').join('')
+  const raio = corpo.match(/border-radius:\s*([^;]+);/)
+  assert.ok(raio, '.mobile-drawer sem border-radius')
+  const [, direitoCima, direitoBaixo] = raio[1].trim().split(/\s+/)
+  assert.ok(parseFloat(direitoCima) > 0 && parseFloat(direitoBaixo) > 0, raio[1])
+  assert.match(corpo, /overflow:\s*hidden/, 'sem recorte, o conteúdo pinta por cima do canto')
+})
