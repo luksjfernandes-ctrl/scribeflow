@@ -465,6 +465,7 @@
   color: #666;
   cursor: default;
   padding: 0;
+  border-radius: 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -910,6 +911,7 @@
   cursor: default;
   font-size: 13px;
   border-right: 1px solid #D0CDC5;
+  border-radius: 6px;
   transition: all 0.15s;
 }
 
@@ -1324,6 +1326,7 @@
   padding: 4px 16px;
   font-size: 13px;
   color: inherit;
+  border-radius: 4px;
 }
 
 .dropdown-item:hover {
@@ -1655,7 +1658,9 @@ textarea {
     padding-right: max(18px, env(safe-area-inset-right));
     margin-bottom: 0;
     box-shadow: none;
-    border-radius: 0;
+    /* Sem ângulo reto nem no celular: a folha encosta nas bordas, mas os
+       cantos continuam arredondados. */
+    border-radius: 10px;
   }
   .epigraph-wrap {
     margin-left: 12%;
