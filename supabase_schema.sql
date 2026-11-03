@@ -301,3 +301,45 @@ DROP TRIGGER IF EXISTS scribeflow_limite_projetos ON public.projects;
 CREATE TRIGGER scribeflow_limite_projetos
   BEFORE INSERT ON public.projects
   FOR EACH ROW EXECUTE FUNCTION public.scribeflow_limite_projetos();
+
+-- 11. Arvore sem ciclo (03/11/2026)
+-- Cada aba confere o arraste so contra o proprio estado. Duas abas (ou uma
+-- aba que perdeu eventos do realtime) podiam gravar X dentro de Y e Y dentro
+-- de X: a subarvore inteira, texto incluido, sumia do Binder e da exportacao.
+-- O banco recusa o parent_id que fecharia um ciclo. A trava por livro faz a
+-- segunda gravacao esperar a primeira e enxergar o ciclo.
+CREATE OR REPLACE FUNCTION public.scribeflow_sem_ciclo()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  atual text := NEW.parent_id;
+  passos int := 0;
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW.parent_id IS NOT DISTINCT FROM OLD.parent_id THEN
+    RETURN NEW;
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('scribeflow_arvore:' || coalesce(NEW.project_id, '')));
+  WHILE atual IS NOT NULL LOOP
+    IF atual = NEW.id THEN
+      RAISE EXCEPTION 'scribeflow_ciclo: o item ficaria dentro de si mesmo' USING ERRCODE = 'check_violation';
+    END IF;
+    passos := passos + 1;
+    -- Uma conta tem no maximo 20.000 docs (secao 10), entao uma cadeia de pais
+    -- de verdade termina antes disto. Passar daqui e ciclo antigo mais acima
+    -- (gravado antes desta regra): recusa em vez de aceitar sem conferir.
+    IF passos > 20001 THEN
+      RAISE EXCEPTION 'scribeflow_ciclo: a pasta de destino esta num ciclo' USING ERRCODE = 'check_violation';
+    END IF;
+    SELECT d.parent_id INTO atual FROM public.docs d WHERE d.id = atual;
+  END LOOP;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS scribeflow_sem_ciclo ON public.docs;
+CREATE TRIGGER scribeflow_sem_ciclo
+  BEFORE INSERT OR UPDATE OF parent_id ON public.docs
+  FOR EACH ROW
+  WHEN (NEW.parent_id IS NOT NULL)
+  EXECUTE FUNCTION public.scribeflow_sem_ciclo();
