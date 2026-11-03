@@ -52,6 +52,7 @@ import { Corkboard } from './components/Corkboard';
 import { Outliner } from './components/Outliner';
 import { Scrivenings } from './components/Scrivenings';
 import { flattenSubtree } from './lib/tree';
+import { countWords } from './lib/plainText';
 import { readExpanded, readViewMode, readZoom, writeExpanded, writeViewMode, writeZoom } from './lib/uiState';
 import { CompositionMode } from './components/CompositionMode';
 import { QuickSearch } from './components/QuickSearch';
@@ -698,7 +699,7 @@ export default function App() {
     () =>
       withoutTrash(docs).reduce(
         (acc, doc) =>
-          acc + (doc.content?.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length || 0),
+          acc + countWords(doc.content),
         0
       ),
     [docs]
