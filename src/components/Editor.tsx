@@ -1,4 +1,5 @@
 import React from 'react';
+import { countWords } from '../lib/plainText';
 import { Editor as TiptapEditor, EditorContent, useEditorState } from '@tiptap/react';
 import {
   Bold,
@@ -361,7 +362,7 @@ export function Editor({
   // Conta pelo doc, nao pelo storage do editor: na troca de documento o
   // setContent roda depois do render e a contagem do editor ainda e a do anterior.
   const partWords = React.useMemo(
-    () => (isPart ? content.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length : 0),
+    () => (isPart ? countWords(content) : 0),
     [isPart, content],
   );
   // Faixa "Transformar em pagina de Livro?" para quem criou o Livro como

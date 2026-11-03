@@ -1,9 +1,10 @@
 import type { Doc } from '../types';
 import { getSortedChildren, isContainer } from './binderOrder';
 
-/** Palavras de um HTML do TipTap (mesma regra das Estatísticas e do Binder). */
-export const countWords = (html: string | null | undefined): number =>
-  (html || '').replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
+import { countWords } from './plainText';
+
+/** Palavras de um HTML do TipTap (lib/plainText.ts, a mesma regra do app inteiro). */
+export { countWords };
 
 /**
  * Subárvore de `rootId` achatada na ordem do Binder (profundidade primeiro, irmãos

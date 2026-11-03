@@ -64,6 +64,7 @@ import { DocBase, baseFromRow, restorePlan } from './lib/conflict';
 import { SaveQueue, SaveStatus, DocFieldUpdates, isContestedPayload, mergeServerDocs, shouldRefetchOnRealtime, unloadVersionFilter, writtenDuringFetch } from './lib/persistence';
 import { readDrafts, recoverySnapshot, removeDraft, saveDraft } from './lib/drafts';
 import { makeDocWriter } from './lib/docWriter';
+import { countWords } from './lib/plainText';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
@@ -698,7 +699,7 @@ export default function App() {
     () =>
       withoutTrash(docs).reduce(
         (acc, doc) =>
-          acc + (doc.content?.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length || 0),
+          acc + countWords(doc.content),
         0
       ),
     [docs]
