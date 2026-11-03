@@ -37,14 +37,25 @@ export const safeUrl = (url: string | undefined): string | null => {
   if (!url) return null;
   const trimmed = url.trim();
   if (!trimmed) return null;
+  let parsed: URL | null = null;
   try {
     // Sem base: URL relativa lanca, e e' isso que queremos para href externo.
-    const parsed = new URL(trimmed);
-    return SAFE_SCHEMES.includes(parsed.protocol) ? trimmed : null;
+    parsed = new URL(trimmed);
   } catch {
-    // Nao parseavel como URL absoluta: trata como http para nao exigir que o
-    // usuario digite o esquema, mas so se nao houver ":" (que indicaria esquema).
-    if (trimmed.includes(':')) return null;
-    return `https://${trimmed}`;
+    parsed = null;
+  }
+  if (parsed && SAFE_SCHEMES.includes(parsed.protocol)) return trimmed;
+  // "localhost:3000" e "exemplo.com:8080/x" parseiam com o host no lugar do
+  // esquema. Com ponto ou localhost antes do ":" e porta depois, e endereco.
+  const hostComPorta = /^(localhost|[^\s:/?#]*\.[^\s:/?#]*):\d/i.test(trimmed);
+  if (parsed && !hostComPorta) return null;
+  // Sem esquema (ou host com porta): vira https. O resultado sempre comeca por
+  // https://, entao nenhum esquema perigoso passa por aqui. Antes, qualquer ":"
+  // ("youtube.com/watch?t=1:30") descartava o link sem aviso.
+  const comEsquema = `https://${trimmed}`;
+  try {
+    return new URL(comEsquema).hostname ? comEsquema : null;
+  } catch {
+    return null;
   }
 };
