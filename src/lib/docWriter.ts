@@ -50,7 +50,21 @@ export function makeDocWriter(deps: DocWriterDeps): WriteFn {
   return async (docId, projectId, payload): Promise<WriteResult> => {
     // O supabase-js devolve { error } em vez de lancar, e um update barrado
     // por RLS ou com project_id errado casa 0 linhas sem erro nenhum.
-    const update = (body: Record<string, unknown>, expectedAt?: number) => deps.update(docId, projectId, body, expectedAt);
+    const update = async (body: Record<string, unknown>, expectedAt?: number): Promise<DbResult<Array<{ id: string }>>> => {
+      const r = await deps.update(docId, projectId, body, expectedAt);
+      // 23503 em parent_id: a pasta de destino foi apagada (em outro aparelho)
+      // depois que esta aba moveu o doc para la. A fila juntava o parent_id em
+      // toda gravacao seguinte e reenviava a cada 5 s para sempre: o texto
+      // novo nunca chegava ao banco. Desiste so da mudanca de pasta; o doc
+      // fica onde o banco tem, e o resto da edicao grava.
+      if (r.error?.code === '23503' && 'parent_id' in body) {
+        const { parent_id: _pasta, order: _ordem, ...rest } = body;
+        deps.warn?.(`[Save] a pasta de destino do doc ${docId} não existe mais; a mudança de pasta foi descartada.`);
+        if (Object.keys(rest).length === 0) return { data: [{ id: docId }], error: null };
+        return deps.update(docId, projectId, rest, expectedAt);
+      }
+      return r;
+    };
     // Limite do banco (lib/limits.ts): a fila guarda a edicao sem reenviar a
     // cada 5 s, porque a mesma gravacao seria recusada de novo.
     const failure = (error: DbError): WriteResult =>
