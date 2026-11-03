@@ -21,7 +21,8 @@ export interface Run {
 export type Block =
   | { type: 'paragraph'; align?: Align; runs: Run[] }
   | { type: 'heading'; level: 1 | 2 | 3; align?: Align; runs: Run[] }
-  | { type: 'list'; ordered: boolean; items: Block[][] }
+  /** `start`: número do primeiro item de lista numerada (`<ol start="3">`), só quando não é 1. */
+  | { type: 'list'; ordered: boolean; start?: number; items: Block[][] }
   | { type: 'blockquote'; children: Block[] }
   | { type: 'rule' };
 
@@ -43,7 +44,9 @@ export const decodeEntities = (s: string): string =>
   s.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (whole, ent: string) => {
     if (ent[0] === '#') {
       const code = ent[1] === 'x' || ent[1] === 'X' ? parseInt(ent.slice(2), 16) : parseInt(ent.slice(1), 10);
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : whole;
+      // Metade de par substituto sozinha não é caractere: fica o texto da entidade.
+      const valid = Number.isFinite(code) && code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff);
+      return valid ? String.fromCodePoint(code) : whole;
     }
     return NAMED_ENTITIES[ent] ?? whole;
   });
@@ -91,11 +94,24 @@ const markFor = (tag: string): keyof Marks | null => {
   }
 };
 
+/**
+ * Caracteres de controle que o XML 1.0 proíbe (e que nenhum formato desenha).
+ * Chegam por texto colado ou por entidade (`&#11;`); no DOCX, um só deles
+ * deixa o arquivo corrompido para o Word. O U+000B (quebra manual do Word)
+ * vira espaço junto com os outros brancos.
+ */
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+const VERTICAL_SPACE = /[\u000B\u000C]/g;
+
+/** Tira os caracteres de controle de um texto avulso (título, epígrafe). */
+export const stripControlChars = (s: string): string => s.replace(VERTICAL_SPACE, ' ').replace(CONTROL_CHARS, '');
+
 /** Junta runs vizinhos com as mesmas marcas e colapsa espaços como o navegador faz. */
 const normalizeRuns = (runs: Run[], preserveSpace = false): Run[] => {
   const out: Run[] = [];
   for (const r of runs) {
-    const text = preserveSpace ? r.text.replace(/\u2028/g, '\n') : r.text.replace(/[ \t\r\n\f]+/g, ' ').replace(/\u2028/g, '\n');
+    const raw = r.text.replace(VERTICAL_SPACE, preserveSpace ? '\n' : ' ').replace(CONTROL_CHARS, '');
+    const text = preserveSpace ? raw.replace(/\u2028/g, '\n') : raw.replace(/[ \t\r\n\f]+/g, ' ').replace(/\u2028/g, '\n');
     if (!text) continue;
     const prev = out[out.length - 1];
     if (prev && prev.bold === r.bold && prev.italic === r.italic && prev.underline === r.underline && prev.strike === r.strike) {
@@ -193,7 +209,8 @@ class Parser {
           if (stray.length) items.push(stray);
           break;
         }
-        return [{ type: 'list', ordered: tag === 'ol', items }];
+        const start = tag === 'ol' ? Number(attrs.match(/\bstart\s*=\s*["']?(-?\d+)/i)?.[1] ?? 1) : 1;
+        return [{ type: 'list', ordered: tag === 'ol', ...(start !== 1 ? { start } : {}), items }];
       }
       case 'blockquote':
         return [{ type: 'blockquote', children: this.parseBlocks('blockquote') }];
@@ -272,7 +289,7 @@ export const runsText = (runs: Run[]): string => runs.map((r) => r.text).join(''
 export const blockText = (b: Block): string => {
   switch (b.type) {
     case 'paragraph': case 'heading': return runsText(b.runs);
-    case 'list': return b.items.map((item, i) => `${b.ordered ? `${i + 1}.` : '•'} ${item.map(blockText).join('\n')}`).join('\n');
+    case 'list': return b.items.map((item, i) => `${b.ordered ? `${(b.start ?? 1) + i}.` : '•'} ${item.map(blockText).join('\n')}`).join('\n');
     case 'blockquote': return b.children.map(blockText).join('\n');
     case 'rule': return '* * *';
   }
