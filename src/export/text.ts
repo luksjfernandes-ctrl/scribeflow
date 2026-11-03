@@ -80,9 +80,13 @@ const rtfBlocks = (blocks: Block[], indentTw = 0, headingSize = true): string =>
       }
       case 'list':
         b.items.forEach((item, i) => {
-          const mark = b.ordered ? `${i + 1}.` : '\\u8226?';
-          const text = item.map(blockText).join(' ');
-          out += `{\\pard\\ql\\li${indentTw + 709}\\fi-354 ${mark}\\tab ${rtfEscape(text)}\\par}\n`;
+          const mark = b.ordered ? `${(b.start ?? 1) + i}.` : '\\u8226?';
+          // O primeiro bloco leva o marcador e mantém negrito/itálico; o resto do
+          // item (outro parágrafo, lista aninhada) vem recuado embaixo dele.
+          const [first, ...rest] = item;
+          const head = !first ? '' : first.type === 'paragraph' || first.type === 'heading' ? rtfRuns(first.runs) : rtfEscape(blockText(first));
+          out += `{\\pard\\ql\\li${indentTw + 709}\\fi-354 ${mark}\\tab ${head}\\par}\n`;
+          if (rest.length) out += rtfBlocks(rest, indentTw + 709, headingSize);
         });
         afterHeading = true;
         break;

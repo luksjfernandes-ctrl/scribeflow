@@ -126,7 +126,7 @@ const blocksToNodes = (blocks: Block[], opts: BlockOpts): PdfNode[] => {
       }
       case 'list': {
         const items = b.items.map((item) => ({ stack: blocksToNodes(item, { ...opts, bookIndent: false, defaultAlign: 'left' }) }));
-        out.push({ [b.ordered ? 'ol' : 'ul']: items, margin: [INDENT, 4, 0, 4] });
+        out.push({ [b.ordered ? 'ol' : 'ul']: items, ...(b.ordered && b.start !== undefined ? { start: b.start } : {}), margin: [INDENT, 4, 0, 4] });
         afterHeading = true;
         break;
       }
