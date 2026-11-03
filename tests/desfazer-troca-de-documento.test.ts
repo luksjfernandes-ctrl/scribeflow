@@ -2,6 +2,7 @@
 // no desfazer: ⌘Z logo depois da troca trazia o capítulo anterior, e o onUpdate
 // gravava esse texto no capítulo aberto.
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
@@ -71,4 +72,18 @@ test('texto que outra aba gravou entra fora do desfazer e a seleção sobrevive'
   // Os outros plugins seguem ativos: digitar continua indo para o histórico.
   digitar('!')
   assert.equal(ed.can().undo(), true)
+})
+
+test('nenhuma troca de documento chama setContent direto (só a restauração de versão, de propósito)', () => {
+  const ler = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8')
+  const diretos = ['src/App.tsx', 'src/components/Editor.tsx', 'src/components/CompositionMode.tsx'].flatMap((f) =>
+    ler(f)
+      .split('\n')
+      .map((linha, i) => ({ f, i: i + 1, linha }))
+      .filter(({ linha }) => /\.commands\.setContent\(/.test(linha)),
+  )
+  // Restaurar uma versão guardada fica no desfazer: o ⌘Z ali é desejável e não sai do documento.
+  assert.deepEqual(diretos.map(({ f, linha }) => `${f}: ${linha.trim()}`), [
+    'src/App.tsx: globalEditor.commands.setContent(plan.content, { emitUpdate: false });',
+  ])
 })
