@@ -106,12 +106,12 @@ export function QuickSearch({ docs, onSelect, onClose }: QuickSearchProps) {
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Ir para um documento ou buscar no texto…"
-            className="flex-1 bg-transparent py-3.5 text-[15px] text-[#3A3A3A] outline-none placeholder:text-[#A8A59D]"
+            className="quick-search-input flex-1 bg-transparent py-3.5 text-[15px] text-[#3A3A3A] outline-none placeholder:text-[#A8A59D]"
           />
           <kbd className="text-[10px] text-[#A8A59D] border border-black/10 rounded px-1.5 py-0.5">esc</kbd>
         </div>
 
-        <div ref={listRef} className="max-h-[50vh] overflow-y-auto scrivener-scrollbar py-1">
+        <div ref={listRef} className="max-h-[50vh] overflow-y-auto scrivener-scrollbar p-1">
           {results.length === 0 && (
             <div className="px-4 py-8 text-center text-[13px] italic text-[#8A877F]">Nenhum documento encontrado.</div>
           )}
@@ -134,7 +134,7 @@ export function QuickSearch({ docs, onSelect, onClose }: QuickSearchProps) {
                 data-idx={i}
                 onClick={() => choose(doc.id)}
                 onMouseEnter={() => setActive(i)}
-                className={`w-full flex items-center gap-3 px-4 py-2 text-left ${
+                className={`w-full flex items-center gap-3 px-3 py-2 text-left rounded-md ${
                   i === active ? 'bg-[#5B7A3D] text-white' : 'hover:bg-black/[0.04] text-[#3A3A3A]'
                 }`}
               >

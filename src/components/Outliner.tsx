@@ -15,7 +15,7 @@ interface OutlinerProps {
 
 const TH = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
   <th
-    className={`p-2 text-left font-bold uppercase tracking-wider text-[#5A5A5A] text-[9px] border-r border-[#B5B2AA] ${className}`}
+    className={`p-2 text-left font-bold uppercase tracking-wider text-[#5A5A5A] text-[9px] border-r border-b border-[#B5B2AA] ${className}`}
   >
     {children}
   </th>
@@ -24,8 +24,10 @@ const TH = ({ children, className = '' }: { children: React.ReactNode; className
 export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: OutlinerProps) {
   return (
     <div className="flex-1 bg-white overflow-x-auto scrivener-scrollbar">
-      <table className="w-full border-collapse text-sm">
-        <thead className="sticky top-0 z-10 bg-[#F2F0EB] border-b border-[#B5B2AA]">
+      {/* border-separate: com as bordas colapsadas o navegador ignora o raio das células,
+          e o realce da linha ficava um retângulo de cantos retos. */}
+      <table className="w-full border-separate border-spacing-0 text-sm">
+        <thead className="sticky top-0 z-10 bg-[#F2F0EB]">
           <tr>
             <TH className="w-64">Título</TH>
             <TH className="w-32">Status</TH>
@@ -33,7 +35,7 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
             <TH className="w-40">Progresso</TH>
             <TH className="w-20">Meta</TH>
             <TH className="w-16">Exportar</TH>
-            <th className="p-2 text-left font-bold uppercase tracking-wider text-[#5A5A5A] text-[9px]">Sinopse</th>
+            <th className="p-2 text-left font-bold uppercase tracking-wider text-[#5A5A5A] text-[9px] border-b border-[#B5B2AA]">Sinopse</th>
           </tr>
         </thead>
         <tbody>
@@ -45,7 +47,7 @@ export function Outliner({ docs, allDocs, onSelectDoc, onUpdateMetadata }: Outli
             return (
               <tr
                 key={doc.id}
-                className="border-b border-[#E2DFD8] hover:bg-[#F0EDE7] cursor-pointer transition-colors"
+                className="outliner-row cursor-pointer"
                 onClick={() => onSelectDoc(doc.id)}
               >
                 <td className="p-2 border-r border-[#E2DFD8]">
