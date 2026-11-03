@@ -139,6 +139,11 @@ export default function App() {
         for (const e of saveQueue.takeAll()) {
           saveDraft(window.localStorage, { userId: prevUserId, docId: e.docId, projectId: e.projectId, payload: e.payload, at: Date.now() });
         }
+        // O livro aberto era da conta anterior. Sem limpar, quem entrar depois
+        // (saída feita em outra aba ou sessão expirada) via o nome do próprio
+        // livro com a estrutura vazia, e "Novo texto" ia para o projeto alheio.
+        setActiveProjectId(null);
+        setSelectedDocId(null);
       }
       userIdRef.current = nextUserId;
       accessTokenRef.current = session?.access_token ?? null;
