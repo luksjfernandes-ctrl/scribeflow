@@ -107,6 +107,11 @@ const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
 export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
+  // Os efeitos de dados dependem do id, não do objeto: a renovação do token
+  // (TOKEN_REFRESHED) entrega um objeto novo da mesma conta, e refazer a carga
+  // do livro avançava a base da gravação condicional sem atualizar o editor —
+  // a próxima tecla sobrescrevia, sem conflito, o texto gravado por outro aparelho.
+  const userId = user?.id ?? null;
   const [isAuthReady, setIsAuthReady] = useState(false);
   /** Entrou pelo link de "Esqueci a senha": pede a nova senha antes de abrir o app. */
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(OPENED_FROM_RECOVERY_LINK);
@@ -508,12 +513,12 @@ export default function App() {
   useEffect(() => {
     if (!isAuthReady) return;
 
-    if (user) {
+    if (userId) {
       const fetchProjects = async () => {
         const { data, error } = await supabase
           .from('projects')
           .select('*')
-          .eq('owner_id', user.id)
+          .eq('owner_id', userId)
           .order('updated_at', { ascending: false });
 
         if (error) {
@@ -539,7 +544,7 @@ export default function App() {
           const initialProject: Partial<Project> = { 
             id: userProjectId,
             name: "Meu Novo Livro",
-            owner_id: user.id,
+            owner_id: userId,
             settings: {
               target_word_count: 50000,
               session_target: 1000,
@@ -572,8 +577,8 @@ export default function App() {
 
       fetchProjects();
 
-      const projectsChannel = supabase.channel(`projects-list-${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `owner_id=eq.${user.id}` }, 
+      const projectsChannel = supabase.channel(`projects-list-${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `owner_id=eq.${userId}` }, 
           () => fetchProjects())
         .subscribe();
 
@@ -583,11 +588,11 @@ export default function App() {
     } else {
       setProjects([]);
     }
-  }, [user, isAuthReady]); // Active project omission is acceptable since projectsChannel triggers data refresh, not setActiveProjectId reassignment unless it is null.
+  }, [userId, isAuthReady]); // Active project omission is acceptable since projectsChannel triggers data refresh, not setActiveProjectId reassignment unless it is null.
 
   // Sync docs for the active project
   useEffect(() => {
-    if (!user || !activeProjectId) {
+    if (!userId || !activeProjectId) {
       setDocs([]);
       return;
     }
@@ -684,7 +689,7 @@ export default function App() {
       cancelled = true;
       docsChannel.unsubscribe();
     };
-  }, [user, activeProjectId, saveQueue]);
+  }, [userId, activeProjectId, saveQueue]);
 
   const { manuscript: manuscriptFolder, trash: trashFolder, characters: charactersFolder, places: placesFolder, research: researchFolder } = useStructuralFolders(docs);
 
