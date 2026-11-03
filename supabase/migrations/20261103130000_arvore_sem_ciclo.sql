@@ -41,8 +41,12 @@ BEGIN
       RAISE EXCEPTION 'scribeflow_ciclo: o item ficaria dentro de si mesmo' USING ERRCODE = 'check_violation';
     END IF;
     passos := passos + 1;
-    -- Ciclo antigo mais acima (gravado antes desta regra): nao prende o banco.
-    EXIT WHEN passos > 10000;
+    -- Uma conta tem no maximo 20.000 docs (secao 10), entao uma cadeia de pais
+    -- de verdade termina antes disto. Passar daqui e ciclo antigo mais acima
+    -- (gravado antes desta regra): recusa em vez de aceitar sem conferir.
+    IF passos > 20001 THEN
+      RAISE EXCEPTION 'scribeflow_ciclo: a pasta de destino esta num ciclo' USING ERRCODE = 'check_violation';
+    END IF;
     SELECT d.parent_id INTO atual FROM public.docs d WHERE d.id = atual;
   END LOOP;
   RETURN NEW;

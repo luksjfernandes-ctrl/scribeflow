@@ -95,3 +95,15 @@ test('a checagem trava o livro, para a segunda aba esperar a primeira e ver o ci
     await db.exec('ROLLBACK')
   }
 })
+
+test('ciclo antigo acima do destino: recusa em vez de aceitar sem conferir', async () => {
+  // Ciclo gravado antes desta regra (sem o gatilho, como no banco de producao).
+  await db.exec(`ALTER TABLE public.docs DISABLE TRIGGER scribeflow_sem_ciclo`)
+  await db.exec(`INSERT INTO public.docs(id, project_id, title, type, parent_id) VALUES ('Q1', 'P', 'q1', 'folder', 'Q2'), ('Q2', 'P', 'q2', 'folder', 'Q1')`)
+  await db.exec(`ALTER TABLE public.docs ENABLE TRIGGER scribeflow_sem_ciclo`)
+  // A subida a partir de Q1 nunca chega em Z nem termina: antes, passado o
+  // limite de passos, o gatilho aceitava; uma cadeia real longa (a cota deixa
+  // 20.000 docs) entrava pelo mesmo buraco.
+  const r = await usr(`UPDATE public.docs SET parent_id = 'Q1' WHERE id = 'Z'`)
+  assert.match(r.erro ?? '', /scribeflow_ciclo/)
+})
