@@ -64,7 +64,7 @@ import { DocBase, baseFromRow, restorePlan } from './lib/conflict';
 import { SaveQueue, SaveStatus, DocFieldUpdates, isContestedPayload, mergeServerDocs, shouldRefetchOnRealtime, unloadVersionFilter, writtenDuringFetch } from './lib/persistence';
 import { readDrafts, recoverySnapshot, removeDraft, saveDraft } from './lib/drafts';
 import { makeDocWriter } from './lib/docWriter';
-import { loadContent } from './lib/editorContent';
+import { loadContent, openDocument } from './lib/editorContent';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
@@ -665,7 +665,7 @@ export default function App() {
           const { from, to } = ed.state.selection;
           // Fora do desfazer: ⌘Z depois disto voltaria o texto anterior por
           // cima do que a outra aba gravou, e com a base nova, sem snapshot.
-          loadContent(ed, d.content || '');
+          loadContent(ed, d.content || '', d.id);
           const max = ed.state.doc.content.size;
           ed.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
         }
@@ -1199,12 +1199,9 @@ export default function App() {
   // Sync Global Editor with Selected Doc
   useEffect(() => {
     if (globalEditor && selectedDoc && selectedDoc.type !== 'folder') {
-      const currentContent = globalEditor.getHTML();
-      if (selectedDoc.content !== currentContent) {
-        // Sem onUpdate (cada troca de capitulo virava uma gravacao do HTML
-        // normalizado) e fora do desfazer (ver lib/editorContent.ts).
-        loadContent(globalEditor, selectedDoc.content);
-      }
+      // Sem onUpdate (cada troca de capitulo virava uma gravacao do HTML
+      // normalizado) e fora do desfazer (ver lib/editorContent.ts).
+      openDocument(globalEditor, selectedDoc.id, selectedDoc.content);
     }
   }, [selectedDoc?.id, globalEditor]);
 

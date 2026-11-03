@@ -21,7 +21,7 @@ import { LIMITS } from '../lib/limits';
 import { parsePartTitle, suggestsPartTitle } from '../lib/part';
 import { isPart as isPartDoc } from '../lib/binderOrder';
 import { quantos } from '../lib/metadataLabels';
-import { loadContent } from '../lib/editorContent';
+import { openDocument } from '../lib/editorContent';
 
 interface EditorProps {
   content: string;
@@ -304,8 +304,9 @@ export function Editor({
   React.useEffect(() => {
     if (editor) {
       // Trocar de documento nao e edicao: nao grava e nao entra no desfazer
-      // (senao ⌘Z traz o documento anterior e grava por cima deste).
-      loadContent(editor, content);
+      // (senao ⌘Z traz o documento anterior e grava por cima deste). Voltar de
+      // outra vista para o mesmo documento remonta isto, e o desfazer fica.
+      openDocument(editor, doc.id, content);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.id, editor]);

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { Editor } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
-import { loadContent } from '../src/lib/editorContent'
+import { loadContent, openDocument } from '../src/lib/editorContent'
 
 const doc = (...paragrafos: string[]) => ({
   type: 'doc',
@@ -86,4 +86,39 @@ test('nenhuma troca de documento chama setContent direto (só a restauração de
   assert.deepEqual(diretos.map(({ f, linha }) => `${f}: ${linha.trim()}`), [
     'src/App.tsx: globalEditor.commands.setContent(plan.content, { emitUpdate: false });',
   ])
+})
+
+// Sem DOM o TipTap nao serializa HTML; aqui o HTML "na tela" e o texto puro,
+// o suficiente para comparar com o que o app passaria.
+const comHtml = (ed: Editor) => Object.assign(ed, { getHTML: () => ed.getText() })
+
+test('voltar do Mural ou da Tabela para o mesmo documento mantém o desfazer', () => {
+  const { ed, digitar } = editor(doc('Capítulo A'))
+  comHtml(ed)
+  loadContent(ed, doc('Capítulo A'), 'A')
+  digitar(' editado')
+  // Remonta o Editor (troca de vista): mesmo doc, mesmo texto.
+  openDocument(ed, 'A', ed.getText())
+  assert.equal(ed.can().undo(), true, 'o desfazer da edição continua')
+  ed.commands.undo()
+  assert.equal(ed.getText(), 'Capítulo A')
+})
+
+test('outro documento com o mesmo texto ainda zera o desfazer', () => {
+  const { ed, digitar } = editor(doc('igual'))
+  comHtml(ed)
+  loadContent(ed, doc('igual'), 'A')
+  digitar('!')
+  openDocument(ed, 'B', doc('igual!'))
+  assert.equal(ed.can().undo(), false)
+})
+
+test('o mesmo documento com texto diferente (ex.: entrou de novo na conta) recarrega', () => {
+  const { ed, digitar } = editor(doc('velho'))
+  comHtml(ed)
+  loadContent(ed, doc('velho'), 'A')
+  digitar('!')
+  openDocument(ed, 'A', doc('versão do banco'))
+  assert.equal(ed.getText(), 'versão do banco')
+  assert.equal(ed.can().undo(), false)
 })
