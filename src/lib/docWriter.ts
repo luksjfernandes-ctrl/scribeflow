@@ -57,9 +57,20 @@ export function makeDocWriter(deps: DocWriterDeps): WriteFn {
       // toda gravacao seguinte e reenviava a cada 5 s para sempre: o texto
       // novo nunca chegava ao banco. Desiste so da mudanca de pasta; o doc
       // fica onde o banco tem, e o resto da edicao grava.
-      if (r.error?.code === '23503' && 'parent_id' in body) {
+      // scribeflow_ciclo (supabase_schema.sql, secao 11): a pasta de destino ja
+      // e descendente do doc no banco (outra aba a pos dentro dele). Sai como
+      // 23514, o mesmo SQLSTATE dos limites, e a fila guardaria (hold) toda
+      // gravacao seguinte do doc. Mesmo tratamento.
+      const recusa = !r.error || !('parent_id' in body)
+        ? null
+        : r.error.code === '23503'
+          ? 'não existe mais'
+          : r.error.code === '23514' && (r.error.message ?? '').includes('scribeflow_ciclo')
+            ? 'ficaria dentro do próprio doc (ciclo)'
+            : null;
+      if (recusa) {
         const { parent_id: _pasta, order: _ordem, ...rest } = body;
-        deps.warn?.(`[Save] a pasta de destino do doc ${docId} não existe mais; a mudança de pasta foi descartada.`);
+        deps.warn?.(`[Save] a pasta de destino do doc ${docId} ${recusa}; a mudança de pasta foi descartada.`);
         if (Object.keys(rest).length === 0) return { data: [{ id: docId }], error: null };
         return deps.update(docId, projectId, rest, expectedAt);
       }
