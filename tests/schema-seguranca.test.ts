@@ -12,6 +12,8 @@ const B = '00000000-0000-0000-0000-00000000000b'
 const C = '00000000-0000-0000-0000-00000000000c'
 const D = '00000000-0000-0000-0000-00000000000d'
 const E = '00000000-0000-0000-0000-00000000000e'
+const F = '00000000-0000-0000-0000-00000000000f'
+const G = '00000000-0000-0000-0000-000000000010'
 
 let db: PGlite
 
@@ -45,7 +47,7 @@ before(async () => {
     GRANT USAGE ON SCHEMA public, auth TO anon, authenticated;
     GRANT EXECUTE ON FUNCTION auth.uid() TO anon, authenticated;
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
-    INSERT INTO auth.users VALUES ('${A}'), ('${B}'), ('${C}'), ('${D}'), ('${E}');
+    INSERT INTO auth.users VALUES ('${A}'), ('${B}'), ('${C}'), ('${D}'), ('${E}'), ('${F}'), ('${G}');
     CREATE PUBLICATION supabase_realtime;
   `)
   const schema = readFileSync(new URL('../supabase_schema.sql', import.meta.url), 'utf8')
@@ -134,4 +136,62 @@ test('perto do teto: editar doc comprimivel passa; troca por texto aleatorio e b
   // A recusa desfaz a gravacao: o doc continua como estava.
   const atual = await usr(E, `SELECT left(content, 8) AS inicio FROM public.docs WHERE id = 'EM'`)
   assert.equal(atual.rows[0]?.inicio, 'palavra ')
+})
+
+test('type so aceita os tipos do app: texto livre ali ficava fora da cota', async () => {
+  await usr(F, `INSERT INTO public.projects(id, name, owner_id) VALUES ('PF', 'Livro F', $1)`, [F])
+  // Antes: 1,9 MB aleatorios em `type` passavam, e a soma da cota nem via.
+  const r = await usr(F, `INSERT INTO public.docs(id, project_id, title, type) VALUES ('FT', 'PF', 'x', ${aleatorio(59000)})`)
+  assert.match(r.erro ?? '', /docs_type_valido/)
+  const tipos = ['text', 'folder', 'research', 'trash', 'front-matter', 'characters', 'places']
+  for (const t of tipos) {
+    assert.equal((await usr(F, `INSERT INTO public.docs(id, project_id, title, type) VALUES ($1, 'PF', 'x', $2)`, [`F-${t}`, t])).erro, undefined, t)
+  }
+  assert.match((await usr(F, `UPDATE public.docs SET type = 'x' || type WHERE id = 'F-text'`)).erro ?? '', /docs_type_valido/)
+})
+
+test('titulo e id contam na cota da conta', async () => {
+  // Conta perto do teto so com texto (13 x 1,9 MB = ~24,5 MB em disco).
+  for (let i = 1; i <= 13; i++) {
+    assert.equal((await usr(F, `INSERT INTO public.docs(id, project_id, title, type, content) VALUES ('FC${i}', 'PF', 'x', 'text', ${aleatorio(59000)})`)).erro, undefined)
+  }
+  // 1.500 docs com titulo de 1.000 caracteres aleatorios: ~1,5 MB a mais.
+  const titulos = await usr(F, `INSERT INTO public.docs(id, project_id, title, type)
+    SELECT 'FX' || g, 'PF', left((SELECT string_agg(md5(random()::text || g::text || h::text), '') FROM generate_series(1, 32) h), 1000), 'text'
+    FROM generate_series(1, 1500) g`)
+  assert.match(titulos.erro ?? '', /scribeflow_limite: espaco/)
+  // O mesmo vale para ids enormes (o id e escolhido pelo cliente).
+  const ids = await usr(F, `INSERT INTO public.docs(id, project_id, title, type)
+    SELECT ${aleatorio(30)} || g, 'PF', 'x', 'text' FROM generate_series(1, 1000) g`)
+  assert.match(ids.erro ?? '', /scribeflow_limite: espaco/)
+  // Trocar o titulo de docs existentes por um maior tambem passa pela cota.
+  const renomeia = await usr(F, `UPDATE public.docs SET title = left((SELECT string_agg(md5(random()::text || id || h::text), '') FROM generate_series(1, 32) h), 1000) WHERE project_id = 'PF'`)
+  assert.equal(renomeia.erro, undefined, 'so 20 docs: cabe')
+  // Reordenar e mover de pasta continuam livres mesmo no teto.
+  assert.equal((await usr(F, `UPDATE public.docs SET "order" = "order" + 1, parent_id = 'F-folder' WHERE id = 'FC1'`)).erro, undefined)
+})
+
+test('a cota trava por conta: duas gravacoes simultaneas nao somam cada uma sem ver a outra', async () => {
+  // Sem trava, cada transacao conta so o que ja foi confirmado: quatro lotes
+  // de 15.000 docs em paralelo gravaram 30.000 (teto de 20.000) num Postgres
+  // real. Com a trava por conta, a segunda espera a primeira e conta tudo.
+  // O PGlite tem uma conexao so; aqui se confere que cada gatilho pega a trava.
+  const travas = async (sql: string, params: unknown[] = []) => {
+    await db.exec('BEGIN')
+    try {
+      await db.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [G])
+      await db.exec('SET LOCAL ROLE authenticated')
+      await db.query(sql, params)
+      const r = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory'`)
+      return r.rows[0].n
+    } finally {
+      await db.exec('ROLLBACK')
+    }
+  }
+  await usr(G, `INSERT INTO public.projects(id, name, owner_id) VALUES ('PG', 'Livro G', $1)`, [G])
+  await usr(G, `INSERT INTO public.docs(id, project_id, title, type) VALUES ('G1', 'PG', 'x', 'text')`)
+  assert.equal(await travas(`INSERT INTO public.projects(id, name, owner_id) VALUES ('PG2', 'x', $1)`, [G]), 1, 'livro novo')
+  assert.equal(await travas(`INSERT INTO public.docs(id, project_id, title, type) VALUES ('G2', 'PG', 'x', 'text')`), 1, 'doc novo')
+  assert.equal(await travas(`UPDATE public.docs SET content = ${aleatorio(10)} WHERE id = 'G1'`), 1, 'doc que cresceu')
+  assert.equal(await travas(`UPDATE public.docs SET "order" = 5 WHERE id = 'G1'`), 0, 'reordenar nao trava')
 })

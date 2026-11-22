@@ -64,6 +64,7 @@ import { DocBase, baseFromRow, restorePlan } from './lib/conflict';
 import { SaveQueue, SaveStatus, DocFieldUpdates, isContestedPayload, mergeServerDocs, shouldRefetchOnRealtime, unloadVersionFilter, writtenDuringFetch } from './lib/persistence';
 import { readDrafts, recoverySnapshot, removeDraft, saveDraft } from './lib/drafts';
 import { makeDocWriter } from './lib/docWriter';
+import { loadContent, openDocument } from './lib/editorContent';
 import { User } from '@supabase/supabase-js';
 import { MenuBar } from './components/MenuBar';
 import { SettingsModal } from './components/SettingsModal';
@@ -107,6 +108,11 @@ const generateInitialDocs = (projectId: string): Partial<Doc>[] => {
 export default function App() {
   // Auth State
   const [user, setUser] = useState<User | null>(null);
+  // Os efeitos de dados dependem do id, não do objeto: a renovação do token
+  // (TOKEN_REFRESHED) entrega um objeto novo da mesma conta, e refazer a carga
+  // do livro avançava a base da gravação condicional sem atualizar o editor —
+  // a próxima tecla sobrescrevia, sem conflito, o texto gravado por outro aparelho.
+  const userId = user?.id ?? null;
   const [isAuthReady, setIsAuthReady] = useState(false);
   /** Entrou pelo link de "Esqueci a senha": pede a nova senha antes de abrir o app. */
   const [isPasswordRecovery, setIsPasswordRecovery] = useState(OPENED_FROM_RECOVERY_LINK);
@@ -139,6 +145,11 @@ export default function App() {
         for (const e of saveQueue.takeAll()) {
           saveDraft(window.localStorage, { userId: prevUserId, docId: e.docId, projectId: e.projectId, payload: e.payload, at: Date.now() });
         }
+        // O livro aberto era da conta anterior. Sem limpar, quem entrar depois
+        // (saída feita em outra aba ou sessão expirada) via o nome do próprio
+        // livro com a estrutura vazia, e "Novo texto" ia para o projeto alheio.
+        setActiveProjectId(null);
+        setSelectedDocId(null);
       }
       userIdRef.current = nextUserId;
       accessTokenRef.current = session?.access_token ?? null;
@@ -244,6 +255,18 @@ export default function App() {
       localMetadata: (docId) => docsRef.current.find(d => d.id === docId)?.metadata,
       updateLocalMetadata: (docId, fn) => setDocs(curr => curr.map(d => (d.id === docId ? { ...d, metadata: fn(d.metadata) } : d))),
       markConfirmed,
+      restoreLocalPlacement: (docId, projectId) => {
+        void supabase
+          .from('docs')
+          .select('parent_id, order')
+          .eq('id', docId)
+          .eq('project_id', projectId)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (!data) return;
+            setDocs(curr => curr.map(d => (d.id === docId ? { ...d, parent_id: data.parent_id, order: data.order } : d)));
+          });
+      },
       newId: () => crypto.randomUUID(),
       now: () => Date.now(),
       stamp: () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
@@ -508,12 +531,12 @@ export default function App() {
   useEffect(() => {
     if (!isAuthReady) return;
 
-    if (user) {
+    if (userId) {
       const fetchProjects = async () => {
         const { data, error } = await supabase
           .from('projects')
           .select('*')
-          .eq('owner_id', user.id)
+          .eq('owner_id', userId)
           .order('updated_at', { ascending: false });
 
         if (error) {
@@ -539,7 +562,7 @@ export default function App() {
           const initialProject: Partial<Project> = { 
             id: userProjectId,
             name: "Meu Novo Livro",
-            owner_id: user.id,
+            owner_id: userId,
             settings: {
               target_word_count: 50000,
               session_target: 1000,
@@ -572,8 +595,8 @@ export default function App() {
 
       fetchProjects();
 
-      const projectsChannel = supabase.channel(`projects-list-${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `owner_id=eq.${user.id}` }, 
+      const projectsChannel = supabase.channel(`projects-list-${userId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `owner_id=eq.${userId}` }, 
           () => fetchProjects())
         .subscribe();
 
@@ -583,11 +606,11 @@ export default function App() {
     } else {
       setProjects([]);
     }
-  }, [user, isAuthReady]); // Active project omission is acceptable since projectsChannel triggers data refresh, not setActiveProjectId reassignment unless it is null.
+  }, [userId, isAuthReady]); // Active project omission is acceptable since projectsChannel triggers data refresh, not setActiveProjectId reassignment unless it is null.
 
   // Sync docs for the active project
   useEffect(() => {
-    if (!user || !activeProjectId) {
+    if (!userId || !activeProjectId) {
       setDocs([]);
       return;
     }
@@ -662,7 +685,9 @@ export default function App() {
         const ed = globalEditorRef.current;
         if (d.id === selectedDocIdRef.current && ed && !ed.isDestroyed && seq > 1 && d.content !== ed.getHTML()) {
           const { from, to } = ed.state.selection;
-          ed.commands.setContent(d.content || '', { emitUpdate: false });
+          // Fora do desfazer: ⌘Z depois disto voltaria o texto anterior por
+          // cima do que a outra aba gravou, e com a base nova, sem snapshot.
+          loadContent(ed, d.content || '', d.id);
           const max = ed.state.doc.content.size;
           ed.commands.setTextSelection({ from: Math.min(from, max), to: Math.min(to, max) });
         }
@@ -684,7 +709,7 @@ export default function App() {
       cancelled = true;
       docsChannel.unsubscribe();
     };
-  }, [user, activeProjectId, saveQueue]);
+  }, [userId, activeProjectId, saveQueue]);
 
   const { manuscript: manuscriptFolder, trash: trashFolder, characters: charactersFolder, places: placesFolder, research: researchFolder } = useStructuralFolders(docs);
 
@@ -1196,12 +1221,9 @@ export default function App() {
   // Sync Global Editor with Selected Doc
   useEffect(() => {
     if (globalEditor && selectedDoc && selectedDoc.type !== 'folder') {
-      const currentContent = globalEditor.getHTML();
-      if (selectedDoc.content !== currentContent) {
-        // emitUpdate: false — no TipTap v3 o setContent dispara onUpdate por
-        // padrao, e cada troca de capitulo virava uma gravacao do HTML normalizado.
-        globalEditor.commands.setContent(selectedDoc.content, { emitUpdate: false });
-      }
+      // Sem onUpdate (cada troca de capitulo virava uma gravacao do HTML
+      // normalizado) e fora do desfazer (ver lib/editorContent.ts).
+      openDocument(globalEditor, selectedDoc.id, selectedDoc.content);
     }
   }, [selectedDoc?.id, globalEditor]);
 
