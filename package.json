@@ -32,7 +32,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "docx": "^9.6.1",
-    "dompurify": "^3.4.3",
+    "dompurify": "^3.4.17",
     "jszip": "^3.10.2",
     "lodash": "^4.17.23",
     "lucide-react": "^0.546.0",
