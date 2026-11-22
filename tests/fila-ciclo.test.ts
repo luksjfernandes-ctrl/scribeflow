@@ -28,15 +28,18 @@ function cenario() {
   const local = [...banco.values()].map((r) => ({ ...r }))
   const bases = new Map([['X', { updatedAt: 1, title: 'Cap X', content: '<p>v1</p>', metadata: {} }]])
   const avisos: string[] = []
+  const restaurados: string[] = []
   const write = makeDocWriter({
     update: async (id, _p, body, expectedAt) => {
       const row = banco.get(id)
       if (!row || (expectedAt !== undefined && row.updated_at !== expectedAt)) return { data: [], error: null }
-      if (typeof body.content === 'string' && body.content.length > 50) {
-        return { data: null, error: { code: '23514', message: 'new row for relation "docs" violates check constraint "docs_content_tamanho"' } }
-      }
+      // Mesma ordem do Postgres: o gatilho BEFORE (scribeflow_sem_ciclo) roda
+      // antes do CHECK de tamanho.
       if ('parent_id' in body && body.parent_id !== row.parent_id && fechaCiclo(banco, id, body.parent_id as string | null)) {
         return { data: null, error: { code: '23514', message: 'scribeflow_ciclo: o item ficaria dentro de si mesmo' } }
+      }
+      if (typeof body.content === 'string' && body.content.length > 50) {
+        return { data: null, error: { code: '23514', message: 'new row for relation "docs" violates check constraint "docs_content_tamanho"' } }
       }
       Object.assign(row, body)
       return { data: [{ id }], error: null }
@@ -48,6 +51,7 @@ function cenario() {
     localMetadata: (id) => local.find((d) => d.id === id)?.metadata as never,
     updateLocalMetadata: () => {},
     markConfirmed: () => {},
+    restoreLocalPlacement: (id) => restaurados.push(id),
     newId: () => 'snap',
     now: () => 1000,
     stamp: () => '22/11 18:00',
@@ -59,11 +63,11 @@ function cenario() {
     setTimer: () => 0,
     clearTimer: () => {},
   })
-  return { banco, q, avisos }
+  return { banco, q, avisos, restaurados }
 }
 
 test('o texto grava mesmo com o arraste recusado por ciclo; a mudanca de pasta e descartada', async () => {
-  const { banco, q, avisos } = cenario()
+  const { banco, q, avisos, restaurados } = cenario()
   // Aba desatualizada: poe X dentro de F, que no banco ja e filha de X.
   q.enqueue('X', 'P', { fields: { parent_id: 'F', order: 0 } })
   q.enqueue('X', 'P', { fields: { content: '<p>capitulo reescrito</p>', updated_at: 2 } as never })
@@ -74,6 +78,7 @@ test('o texto grava mesmo com o arraste recusado por ciclo; a mudanca de pasta e
   assert.equal(q.status(), 'saved')
   assert.equal(q.hasUnsaved(), false)
   assert.match(avisos.join('\n'), /ciclo/)
+  assert.deepEqual(restaurados, ['X'], 'o estado local volta para a pasta do banco')
 })
 
 test('so a mudanca de pasta recusada por ciclo: sai da fila sem erro preso', async () => {
@@ -95,4 +100,15 @@ test('limite de verdade com mudanca de pasta continua guardado (hold), sem desca
   assert.equal(banco.get('X')!.content, '<p>v1</p>')
   assert.equal(q.status(), 'error')
   assert.equal(q.hasUnsaved(), true)
+})
+
+test('arraste que fecha ciclo E texto acima do limite: descarta a pasta e guarda o texto', async () => {
+  const { banco, q, restaurados } = cenario()
+  q.enqueue('X', 'P', { fields: { parent_id: 'F', order: 0, content: `<p>${'x'.repeat(60)}</p>` } as never })
+  await q.flush()
+  assert.equal(banco.get('X')!.parent_id, 'M', 'a pasta recusada nao chega ao banco')
+  assert.equal(banco.get('X')!.content, '<p>v1</p>', 'o texto grande nao grava')
+  assert.equal(q.status(), 'error')
+  assert.equal(q.hasUnsaved(), true, 'o texto fica guardado (hold), nao vai fora')
+  assert.deepEqual(restaurados, ['X'])
 })

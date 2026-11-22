@@ -40,6 +40,10 @@ export interface DocWriterDeps {
   /** Troca o metadata do doc no estado local pelo que `fn` devolver. */
   updateLocalMetadata(docId: string, fn: (local: DocumentMetadata) => DocumentMetadata): void;
   markConfirmed(docId: string): void;
+  /** Mudanca de pasta recusada pelo banco: poe o doc, no estado local, de volta
+   *  onde o banco tem (parent_id e order). Sem isso a aba seguia mostrando o doc
+   *  na pasta de destino, e a proxima leitura dessa pasta montava o ciclo. */
+  restoreLocalPlacement?(docId: string, projectId: string): void;
   newId(): string;
   now(): number;
   stamp(): string;
@@ -71,6 +75,7 @@ export function makeDocWriter(deps: DocWriterDeps): WriteFn {
       if (recusa) {
         const { parent_id: _pasta, order: _ordem, ...rest } = body;
         deps.warn?.(`[Save] a pasta de destino do doc ${docId} ${recusa}; a mudança de pasta foi descartada.`);
+        deps.restoreLocalPlacement?.(docId, projectId);
         if (Object.keys(rest).length === 0) return { data: [{ id: docId }], error: null };
         return deps.update(docId, projectId, rest, expectedAt);
       }
