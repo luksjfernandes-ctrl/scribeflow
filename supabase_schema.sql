@@ -190,6 +190,14 @@ END $$;
 
 DO $$
 BEGIN
+  -- Sem isto, `type` aceitava texto livre de qualquer tamanho, fora da cota.
+  ALTER TABLE public.docs ADD CONSTRAINT docs_type_valido
+    CHECK (type IN ('text', 'folder', 'research', 'trash', 'front-matter', 'characters', 'places'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$
+BEGIN
   ALTER TABLE public.projects ADD CONSTRAINT projects_name_tamanho CHECK (char_length(name) <= 500);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
@@ -203,9 +211,18 @@ END $$;
 -- Usado pelas politicas de RLS (auth.uid() = owner_id) e pelas cotas abaixo.
 CREATE INDEX IF NOT EXISTS idx_projects_owner_id ON public.projects(owner_id);
 
--- Cota por conta: 25 MB de texto + metadata e 20.000 documentos.
+-- Cota por conta: 25 MB e 20.000 documentos.
 -- SECURITY INVOKER de proposito: com a RLS, as somas so enxergam os docs de
 -- quem grava (e a RLS ja barrou gravacao em projeto de outra conta).
+--
+-- O que conta: corpo, metadata, titulo, tipo e id (o id e escolhido pelo
+-- cliente). Contar so corpo + metadata deixava gravar o resto de graca.
+-- parent_id e project_id ficam de fora: repetem um id que ja existe, e assim
+-- mover de pasta nunca esbarra na cota.
+--
+-- Trava por conta (pg_advisory_xact_lock) antes de contar: sem ela, duas
+-- gravacoes simultaneas contavam cada uma so o que ja estava confirmado, e as
+-- duas passavam (4 lotes de 15.000 docs em paralelo gravaram 30.000).
 
 -- INSERT: uma checagem por comando, depois de gravar. Criar um projeto (9 docs)
 -- ou importar centenas de docs custa uma soma so, nao uma por linha.
@@ -216,12 +233,19 @@ SET search_path = ''
 AS $$
 DECLARE
   excedido text;
+  dono uuid;
 BEGIN
+  FOR dono IN
+    SELECT DISTINCT p2.owner_id FROM novos n JOIN public.projects p2 ON p2.id = n.project_id ORDER BY 1
+  LOOP
+    PERFORM pg_advisory_xact_lock(hashtext('scribeflow_cota:' || dono::text));
+  END LOOP;
+
   SELECT CASE WHEN t.quantos > 20000 THEN 'docs' ELSE 'espaco' END
     INTO excedido
     FROM (
       SELECT count(*) AS quantos,
-             sum(coalesce(pg_column_size(d.content), 0) + coalesce(pg_column_size(d.metadata), 0)) AS usados
+             sum(coalesce(pg_column_size(d.content), 0) + coalesce(pg_column_size(d.metadata), 0) + coalesce(pg_column_size(d.title), 0) + coalesce(pg_column_size(d.type), 0) + coalesce(pg_column_size(d.id), 0)) AS usados
         FROM public.docs d
         JOIN public.projects p ON p.id = d.project_id
        WHERE p.owner_id IN (SELECT p2.owner_id FROM novos n JOIN public.projects p2 ON p2.id = n.project_id)
@@ -242,8 +266,8 @@ CREATE TRIGGER scribeflow_limite_docs_insert
   REFERENCING NEW TABLE AS novos
   FOR EACH STATEMENT EXECUTE FUNCTION public.scribeflow_limite_docs_lote();
 
--- UPDATE: o autosave grava um doc por vez. So dispara quando corpo ou metadata
--- mudam, entao reordenar o Binder (`order`, `parent_id`) nao paga a soma.
+-- UPDATE: o autosave grava um doc por vez. So dispara quando muda uma coluna
+-- que conta na cota, entao reordenar o Binder (`order`, `parent_id`) nao paga a soma.
 -- Roda DEPOIS de gravar para medir tudo pelo tamanho em disco (comprimido),
 -- igual ao INSERT. Medir o NEW cru contra as outras linhas comprimidas recusaria
 -- uma edicao de 1 caractere em doc grande perto do teto; medir so o crescimento
@@ -258,8 +282,8 @@ DECLARE
   dono uuid;
   usados bigint;
 BEGIN
-  IF coalesce(pg_column_size(NEW.content), 0) + coalesce(pg_column_size(NEW.metadata), 0)
-     <= coalesce(pg_column_size(OLD.content), 0) + coalesce(pg_column_size(OLD.metadata), 0) THEN
+  IF coalesce(pg_column_size(NEW.content), 0) + coalesce(pg_column_size(NEW.metadata), 0) + coalesce(pg_column_size(NEW.title), 0) + coalesce(pg_column_size(NEW.type), 0) + coalesce(pg_column_size(NEW.id), 0)
+     <= coalesce(pg_column_size(OLD.content), 0) + coalesce(pg_column_size(OLD.metadata), 0) + coalesce(pg_column_size(OLD.title), 0) + coalesce(pg_column_size(OLD.type), 0) + coalesce(pg_column_size(OLD.id), 0) THEN
     RETURN NULL;
   END IF;
 
@@ -267,8 +291,9 @@ BEGIN
   IF dono IS NULL THEN
     RETURN NULL;
   END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('scribeflow_cota:' || dono::text));
 
-  SELECT coalesce(sum(coalesce(pg_column_size(d.content), 0) + coalesce(pg_column_size(d.metadata), 0)), 0)
+  SELECT coalesce(sum(coalesce(pg_column_size(d.content), 0) + coalesce(pg_column_size(d.metadata), 0) + coalesce(pg_column_size(d.title), 0) + coalesce(pg_column_size(d.type), 0) + coalesce(pg_column_size(d.id), 0)), 0)
     INTO usados
     FROM public.docs d
     JOIN public.projects p ON p.id = d.project_id
@@ -282,7 +307,7 @@ END $$;
 
 DROP TRIGGER IF EXISTS scribeflow_limite_docs_update ON public.docs;
 CREATE TRIGGER scribeflow_limite_docs_update
-  AFTER UPDATE OF content, metadata ON public.docs
+  AFTER UPDATE OF content, metadata, title, type, id ON public.docs
   FOR EACH ROW EXECUTE FUNCTION public.scribeflow_limite_docs();
 
 CREATE OR REPLACE FUNCTION public.scribeflow_limite_projetos()
@@ -291,6 +316,7 @@ LANGUAGE plpgsql
 SET search_path = ''
 AS $$
 BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('scribeflow_cota:' || NEW.owner_id::text));
   IF (SELECT count(*) FROM public.projects WHERE owner_id = NEW.owner_id) >= 100 THEN
     RAISE EXCEPTION 'scribeflow_limite: projetos' USING ERRCODE = 'check_violation';
   END IF;
