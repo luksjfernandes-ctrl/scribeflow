@@ -255,6 +255,18 @@ export default function App() {
       localMetadata: (docId) => docsRef.current.find(d => d.id === docId)?.metadata,
       updateLocalMetadata: (docId, fn) => setDocs(curr => curr.map(d => (d.id === docId ? { ...d, metadata: fn(d.metadata) } : d))),
       markConfirmed,
+      restoreLocalPlacement: (docId, projectId) => {
+        void supabase
+          .from('docs')
+          .select('parent_id, order')
+          .eq('id', docId)
+          .eq('project_id', projectId)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (!data) return;
+            setDocs(curr => curr.map(d => (d.id === docId ? { ...d, parent_id: data.parent_id, order: data.order } : d)));
+          });
+      },
       newId: () => crypto.randomUUID(),
       now: () => Date.now(),
       stamp: () => new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(',', ''),
