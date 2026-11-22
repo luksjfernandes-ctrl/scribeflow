@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { htmlToText } from '../lib/plainText';
 import { X, BarChart3 } from 'lucide-react';
 import { Doc } from '../types';
 import { withoutTrash } from '../lib/trash';
@@ -17,12 +18,7 @@ const STOP_WORDS = new Set(
   )
 );
 
-const stripHtml = (html: string) =>
-  (html || '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+const stripHtml = htmlToText;
 
 const StatRow =({ label, value, total, color }: { label: string; value: number; total: number; color: string }) => {
   const pct = total > 0 ? Math.round((value / total) * 100) : 0;

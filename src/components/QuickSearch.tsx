@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { htmlToText } from '../lib/plainText';
 import { Search, CornerDownLeft } from 'lucide-react';
 import { Doc } from '../types';
 import { getDocIcon } from '../utils/getDocIcon';
@@ -10,12 +11,7 @@ interface QuickSearchProps {
   onClose: () => void;
 }
 
-const strip = (html: string) =>
-  (html || '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+const strip = htmlToText;
 
 /** Build a short excerpt centered on the first match of `query`. */
 const excerpt = (text: string, query: string): string => {

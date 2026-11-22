@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { countWords, matchesSearch } from '../lib/plainText';
 import { 
   ChevronRight, 
   ChevronDown, 
@@ -92,21 +93,6 @@ interface DropIndicator {
 
 
 
-const stripHtml = (html: string) =>
-  (html || '')
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const matchesSearch = (doc: Doc, query: string): boolean => {
-  const q = query.toLowerCase();
-  return (
-    doc.title.toLowerCase().includes(q) ||
-    (doc.metadata?.synopsis || '').toLowerCase().includes(q) ||
-    stripHtml(doc.content).toLowerCase().includes(q)
-  );
-};
 
 interface SortableBinderItemProps {
   doc: Doc;
@@ -208,7 +194,7 @@ function SortableBinderItem({
 
   const hasDisclosure = isContainer(doc) || childrenDocs.length > 0;
 
-  const wordCount = (doc.content || '').replace(/<[^>]*>/g, '').split(/\s+/).filter(Boolean).length;
+  const wordCount = countWords(doc.content);
 
   return (
     <div ref={setDragRef} style={style} className="select-none">

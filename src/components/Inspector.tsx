@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { htmlToText } from '../lib/plainText';
 import {
   Info,
   Bookmark as BookmarkIcon,
@@ -42,12 +43,7 @@ const uid = () => {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
-const stripHtml = (html: string) =>
-  html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+const stripHtml = htmlToText;
 
 const wordCount = (html: string) => {
   const text = stripHtml(html);

@@ -1,4 +1,5 @@
 import React from 'react';
+import { countWords } from '../lib/plainText';
 import { Doc } from '../types';
 import { cn } from '../lib/utils';
 import { getDocIcon } from '../utils/getDocIcon';
@@ -12,8 +13,7 @@ interface CorkboardProps {
   onUpdateSynopsis: (id: string, synopsis: string) => void;
 }
 
-const wordCount = (html: string) =>
-  (html || '').replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
+const wordCount = countWords;
 
 export function Corkboard({ docs, onSelectDoc, onUpdateSynopsis }: CorkboardProps) {
   return (
