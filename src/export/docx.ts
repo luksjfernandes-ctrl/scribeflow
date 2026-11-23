@@ -22,7 +22,7 @@ import {
   type ISectionOptions,
 } from 'docx';
 import JSZip from 'jszip';
-import { blockText, type Align, type Block, type Run } from './html';
+import { blockText, stripControlChars, type Align, type Block, type Run } from './html';
 import type { CompileItem, Epigraph, Manuscript } from './compile';
 
 /**
@@ -65,6 +65,9 @@ const ALIGN: Record<Align, (typeof AlignmentType)[keyof typeof AlignmentType]> =
   justify: AlignmentType.JUSTIFIED,
 };
 
+/** Texto avulso (título, epígrafe) sem os caracteres de controle que corrompem o XML. */
+const plainRun = (text: string) => new TextRun(stripControlChars(text));
+
 const textRuns = (runs: Run[]): TextRun[] =>
   runs.flatMap((r) =>
     r.text.split('\n').map((part, i) =>
@@ -81,11 +84,21 @@ const textRuns = (runs: Run[]): TextRun[] =>
 
 interface BodyCtx {
   listCounter: { n: number };
+  /** Números iniciais de listas numeradas que não começam em 1 (`<ol start>`). */
+  listStarts: Set<number>;
 }
+
+/** Recuo do texto de um item de lista no nível dado (igual ao da numeração). */
+const listIndent = (level: number) => cm(0.9 + level * 0.7);
+const numberRef = (start: number | undefined) => (start === undefined || start === 1 ? 'sf-numero' : `sf-numero-${start}`);
 
 const HEADING_BY_LEVEL = [HeadingLevel.HEADING_2, HeadingLevel.HEADING_3, HeadingLevel.HEADING_4] as const;
 
-const blocksToParagraphs = (blocks: Block[], ctx: BodyCtx, opts: { style: string; list?: { ref: string; instance: number; level: number } }): Paragraph[] => {
+/**
+ * `list`: parágrafo que leva o marcador. `inItem`: resto de um item de lista
+ * (segundo parágrafo, lista aninhada), recuado no nível do item.
+ */
+const blocksToParagraphs = (blocks: Block[], ctx: BodyCtx, opts: { style: string; list?: { ref: string; instance: number; level: number }; inItem?: number }): Paragraph[] => {
   const out: Paragraph[] = [];
   let afterHeading = true;
   for (const b of blocks) {
@@ -99,6 +112,7 @@ const blocksToParagraphs = (blocks: Block[], ctx: BodyCtx, opts: { style: string
           children: textRuns(b.runs),
           ...(b.align && !opts.list ? { alignment: ALIGN[b.align] } : {}),
           ...(opts.list ? { numbering: { reference: opts.list.ref, instance: opts.list.instance, level: opts.list.level } } : {}),
+          ...(!opts.list && opts.inItem !== undefined ? { indent: { left: listIndent(opts.inItem), firstLine: 0 } } : {}),
         }));
         afterHeading = b.runs.length === 0;
         break;
@@ -109,13 +123,15 @@ const blocksToParagraphs = (blocks: Block[], ctx: BodyCtx, opts: { style: string
         break;
       case 'list': {
         const instance = ++ctx.listCounter.n;
-        const level = opts.list ? Math.min(opts.list.level + 1, 2) : 0;
-        const ref = b.ordered ? 'sf-numero' : 'sf-marcador';
+        // Lista dentro de item de lista desce um nível (a, b, c…; i, ii, iii…).
+        const level = opts.inItem !== undefined ? Math.min(opts.inItem + 1, 2) : 0;
+        if (b.ordered && b.start !== undefined && b.start !== 1) ctx.listStarts.add(b.start);
+        const ref = b.ordered ? numberRef(b.start) : 'sf-marcador';
         for (const item of b.items) {
           // Só o primeiro parágrafo do item leva o marcador; o resto fica recuado.
           const [first, ...rest] = item;
-          if (first) out.push(...blocksToParagraphs([first], ctx, { style: STYLE.bodyFirst, list: { ref, instance, level } }));
-          if (rest.length) out.push(...blocksToParagraphs(rest, ctx, { style: STYLE.bodyFirst }));
+          if (first) out.push(...blocksToParagraphs([first], ctx, { style: STYLE.bodyFirst, list: { ref, instance, level }, inItem: level }));
+          if (rest.length) out.push(...blocksToParagraphs(rest, ctx, { style: STYLE.bodyFirst, inItem: level }));
         }
         afterHeading = true;
         break;
@@ -141,11 +157,11 @@ const epigraphParagraphs = (e: Epigraph): Paragraph[] =>
     const last = i === e.lines.length - 1;
     if (line.kind === 'attribution') {
       // A atribuição já traz o espaço até o corpo; no meio da epígrafe, não.
-      return new Paragraph({ style: STYLE.attribution, ...(last ? {} : { spacing: { after: 0 } }), children: [new TextRun(line.display)] });
+      return new Paragraph({ style: STYLE.attribution, ...(last ? {} : { spacing: { after: 0 } }), children: [plainRun(line.display)] });
     }
     return new Paragraph({
       style: STYLE.epigraph,
-      children: line.kind === 'blank' ? [] : [new TextRun(line.display)],
+      children: line.kind === 'blank' ? [] : [plainRun(line.display)],
       // Termina em citação: o espaço até o corpo fica na última linha.
       ...(last ? { spacing: { after: EPIGRAPH_AFTER } } : {}),
     });
@@ -226,12 +242,12 @@ const itemParagraphs = (item: CompileItem, ctx: BodyCtx, atSectionStart: boolean
     const height = partBlockHeight(item, geo);
     const before = height < geo.contentHeight * 0.8 ? centeredBefore(geo, height) : 0;
     const top = before ? { spacing: { before } } : {};
-    if (item.label) out.push(new Paragraph({ style: STYLE.partLabel, ...top, children: [new TextRun(item.label)] }));
-    out.push(new Paragraph({ style: STYLE.partTitle, ...(item.label ? {} : top), children: [new TextRun(item.name || item.title)] }));
+    if (item.label) out.push(new Paragraph({ style: STYLE.partLabel, ...top, children: [plainRun(item.label)] }));
+    out.push(new Paragraph({ style: STYLE.partTitle, ...(item.label ? {} : top), children: [plainRun(item.name || item.title)] }));
   } else if (item.kind === 'chapter') {
-    out.push(new Paragraph({ style: STYLE.chapter, pageBreakBefore: brk, children: [new TextRun(item.title)] }));
+    out.push(new Paragraph({ style: STYLE.chapter, pageBreakBefore: brk, children: [plainRun(item.title)] }));
   } else if (item.title) {
-    out.push(new Paragraph({ style: STYLE.section, pageBreakBefore: item.startsPage && brk, children: [new TextRun(item.title)] }));
+    out.push(new Paragraph({ style: STYLE.section, pageBreakBefore: item.startsPage && brk, children: [plainRun(item.title)] }));
   } else if (item.startsPage && brk) {
     out.push(new Paragraph({ pageBreakBefore: true, children: [] }));
   }
@@ -254,12 +270,12 @@ export const buildDocx = (ms: Manuscript, options: DocxOptions = {}): Document =
     ? { alignment: AlignmentType.JUSTIFIED, indent: { firstLine: BOOK_INDENT }, spacing: { after: 0 } }
     : { alignment: AlignmentType.JUSTIFIED, indent: { firstLine: 0 }, spacing: { after: 0.6 * BODY_PT * 20 } };
   const geo = geometry(options.pageSize);
-  const ctx: BodyCtx = { listCounter: { n: 0 } };
+  const ctx: BodyCtx = { listCounter: { n: 0 }, listStarts: new Set() };
   const sections: ISectionOptions[] = [
     newSection([new Paragraph({
       style: STYLE.bookTitle,
       spacing: { before: centeredBefore(geo, lineTw(30, 1)) },
-      children: [new TextRun(ms.title)],
+      children: [plainRun(ms.title)],
     })], 'centered', true, geo),
   ];
   let body: Paragraph[] = [];
@@ -321,10 +337,11 @@ export const buildDocx = (ms: Manuscript, options: DocxOptions = {}): Document =
           reference: 'sf-marcador',
           levels: [0, 1, 2].map((level) => ({ level, format: LevelFormat.BULLET, text: level === 1 ? '◦' : '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: cm(0.9 + level * 0.7), hanging: cm(0.45) } } } })),
         },
-        {
-          reference: 'sf-numero',
-          levels: [0, 1, 2].map((level) => ({ level, format: [LevelFormat.DECIMAL, LevelFormat.LOWER_LETTER, LevelFormat.LOWER_ROMAN][level], text: `%${level + 1}.`, alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: cm(0.9 + level * 0.7), hanging: cm(0.55) } } } })),
-        },
+        // Uma numeração por número inicial: `<ol start="3">` continua em 3, 4, 5…
+        ...[1, ...ctx.listStarts].map((start) => ({
+          reference: numberRef(start),
+          levels: [0, 1, 2].map((level) => ({ level, format: [LevelFormat.DECIMAL, LevelFormat.LOWER_LETTER, LevelFormat.LOWER_ROMAN][level], text: `%${level + 1}.`, alignment: AlignmentType.LEFT, ...(level === 0 && start !== 1 ? { start } : {}), style: { paragraph: { indent: { left: listIndent(level), hanging: cm(0.55) } } } })),
+        })),
       ],
     },
     sections,
