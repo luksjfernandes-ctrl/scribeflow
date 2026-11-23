@@ -9,7 +9,7 @@ declare module '@tiptap/core' {
     comment: {
       /** Wrap the current selection in a comment mark with the given id. */
       setComment: (commentId: string) => ReturnType;
-      /** Remove every comment mark matching the given id from the document. */
+      /** Remove the comment mark with the given id, keeping other comments on the same text. */
       removeComment: (commentId: string) => ReturnType;
     };
   }
@@ -67,8 +67,12 @@ export const CommentMark = Mark.create<CommentOptions>({
           let changed = false;
           state.doc.descendants((node, pos) => {
             if (!node.isText) return;
-            if (node.marks.some((m) => m.type === markType && m.attrs.commentId === commentId)) {
-              tr.removeMark(pos, pos + node.nodeSize, markType);
+            // Remove só a marca deste id. Passar o markType tiraria também as
+            // outras marcas de comentário no mesmo trecho (excludes: '' deixa
+            // comentários se sobreporem), e o comentário vizinho perderia a âncora.
+            const alvo = node.marks.find((m) => m.type === markType && m.attrs.commentId === commentId);
+            if (alvo) {
+              tr.removeMark(pos, pos + node.nodeSize, alvo);
               changed = true;
             }
           });
